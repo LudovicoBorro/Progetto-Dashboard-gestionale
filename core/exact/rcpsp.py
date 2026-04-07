@@ -1,49 +1,49 @@
 """
 rcpsp.py
 --------
-Implementazione del modello RCPSP classico (Resource-Constrained Project Scheduling Problem),
-tramite programmazione lineare intera mista (MILP).
+Implementazione del modello RCPSP classico (Resource-Constrained Project
+Scheduling Problem) tramite CP-SAT (Constraint Programming + SAT).
 
-Il modello ha come obiettivo la minimizzazione della durata totale del progetto,
-il cosiddetto makespan, cioè il tempo di completamento dell'ultima attività.
+Obiettivo: minimizzare il makespan, ovvero il tempo di inizio dell'attività
+fittizia finale (n-1), la cui durata è 0.
 
-Variabile decisionale:
-  x[i][t] ∈ {0, 1} — vale 1 se l'attività i inizia al tempo t.
+Variabili decisionali:
+    start[i]    — tempo di inizio dell'attività i
+    interval[i] — variabile intervallo (lega start, durata, end)
 
-I vincoli fondamentali per questo modello sono:
-- Vincoli di precedenza finish-to-start.
-- Vincoli di risorsa: in ogni istante t, il consumo totale di ogni risorsa non supera
-  la disponibilità Rk.
-- Ogni attivià inizia esattamente una volta.
-- Il makespan è il tempo di completamento dell'attività fittizia finale.
+Vincoli fondamentali:
+    1. Precedenze finish-to-start: start[j] >= start[i] + durata[i] per ogni (i, j) in A.
+    2. Risorse rinnovabili: add_cumulative per ogni risorsa k.
+    3. Attività fittizia iniziale fissata a t=0.
 """
 
-import pulp
+from collections import defaultdict, deque
+from ortools.sat.python import cp_model as cpm
 
-class Model():
+
+class Model:
     """
-    Modello MILP per il problema RCPSP classico.
+    Modello CP-SAT per il problema RCPSP classico.
 
     Parametri
     ----------
     n : int
-        Numero totale di attività, incluse le due fittizie (0-indexed: 0..n-1).
-        Le attività 0 e n-1 sono fittizie (inizio e fine progetto).
+        Numero totale di attività incluse le due fittizie.
+        Attività 0 = fittizia iniziale, attività n-1 = fittizia finale.
     durations : list[int]
-        Vettore p delle durate. durations[0] = durations[n-1] = 0.
+        Vettore delle durate p. durations[0] = durations[n-1] = 0.
     precedences : list[tuple[int, int]]
-        Lista di coppie (i, j) che indicano che i deve completarsi
-        prima che j inizi (vincolo FSij min 0).
+        Lista di coppie (i, j): i deve completarsi prima che j inizi.
     resources : list[int]
-        Vettore R di disponibilità per ciascuna delle m risorse rinnovabili.
-        resources[k] = disponibilità della risorsa k per ogni istante.
+        Vettore delle disponibilità R[k] per ciascuna delle m risorse.
     consumption : list[list[int]]
-        Matrice r[i][k]: quantità di risorsa k usata dall'attività i
+        Matrice r[i][k]: unità di risorsa k usate dall'attività i
         per ogni istante in cui è in esecuzione.
         consumption[0][k] = consumption[n-1][k] = 0 per ogni k.
     deadline : int
-        Orizzonte temporale massimo D del progetto. Definisce il dominio
-        delle variabili x[i][t] (t = 0, 1, ..., D).
+        Orizzonte temporale massimo D. Definisce il dominio delle variabili.
+    validate_input : bool
+        Se True esegue la validazione degli input prima di costruire il modello.
     """
 
     def __init__(
@@ -55,86 +55,193 @@ class Model():
         consumption: list[list[int]],
         deadline: int,
         validate_input: bool = True,
-        ):
-        
+    ):
         self._n = n
         self._activities = list(range(n))
         self._durations = durations
         self._precedences = precedences
-        self._m = len(resources)
         self._resources = resources
         self._consumption = consumption
         self._deadline = deadline
-        self._time_horizon = list(range(deadline + 1))
+
+        # Risultati (popolati da solve)
         self._start_times: dict[int, int] | None = None
         self._makespan: int | None = None
-        self._status: str | None = None
+        self._status: int | None = None
+
         if validate_input:
             self._validate_inputs()
 
-    def _validate_inputs(self):
+    # ──────────────────────────────────────────────────────────────────────────
+    # VALIDAZIONE INPUT
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _validate_inputs(self) -> None:
+        """
+        Verifica la coerenza e ammissibilità degli input prima di costruire
+        il modello. Rileva a priori le situazioni di inammissibilità strutturale
+        evitando di avviare il solver su istanze non risolvibili.
+        """
+        m = len(self._resources)
+
+        # ── Dimensione minima ─────────────────────────────────────────────────
+        if self._n < 2:
+            raise ValueError(
+                "n deve essere almeno 2: sono richieste le due attività "
+                "fittizie iniziale (0) e finale (n-1)."
+            )
+
+        # ── Coerenza dimensionale dei vettori ─────────────────────────────────
         if len(self._durations) != self._n:
-            raise ValueError(f"durations deve avere lunghezza {len(self._n)}")
+            raise ValueError(
+                f"durations ha {len(self._durations)} elementi, attesi {self._n}."
+            )
 
         if len(self._consumption) != self._n:
-            raise ValueError(f"consumption deve avere {len(self._n)} righe (una per attività)")
+            raise ValueError(
+                f"consumption ha {len(self._consumption)} righe, attese {self._n}."
+            )
 
-        if any(len(row) != len(self._resources) for row in self._consumption):
-            raise ValueError(f"Ogni riga di consumption deve avere lunghezza {self._m}")
-        
-        if any(d < 0 for d in self._durations):
-            raise ValueError("Durate negative non ammesse")
+        for i, row in enumerate(self._consumption):
+            if len(row) != m:
+                raise ValueError(
+                    f"consumption[{i}] ha {len(row)} colonne, attese {m} "
+                    f"(numero di risorse)."
+                )
 
-        if any(r < 0 for r in self._resources):
-            raise ValueError("Capacità risorse negative non ammesse")
+        # ── Valori non negativi sulle durate ──────────────────────────────────
+        for i, d in enumerate(self._durations):
+            if d < 0:
+                raise ValueError(
+                    f"durations[{i}] = {d}: le durate non possono essere negative."
+                )
 
-        for i in range(self._n):
-            for k in range(len(self._resources)):
-                if self._consumption[i][k] < 0:
-                    raise ValueError(f"Consumo negativo per attività {i}, risorsa {k}")
-        
-        if self._durations[0] != 0 or self._durations[self._n-1] != 0:
-            raise ValueError("Le attività fittizie 0 e n-1 devono avere durata 0")
+        # ── Disponibilità risorse strettamente positive ───────────────────────
+        for k, r in enumerate(self._resources):
+            if r <= 0:
+                raise ValueError(
+                    f"resources[{k}] = {r}: la disponibilità di ogni risorsa "
+                    f"deve essere > 0."
+                )
 
-        for k in range(len(self._resources)):
-            if self._consumption[0][k] != 0 or self._consumption[self._n-1][k] != 0:
-                raise ValueError("Le attività fittizie non devono consumare risorse")
-            
-        for (i, j) in self._precedences:
-            if i < 0 or i >= self._n or j < 0 or j >= self._n:
-                raise ValueError(f"Precedenza non valida: ({i}, {j}) fuori range")
-
-            if i == j:
-                raise ValueError(f"Loop su attività {i}")
-
-        if self._deadline <= 0:
-            raise ValueError("Deadline deve essere positiva")
-
-        if self._deadline < max(self._durations):
-            raise ValueError("Deadline troppo piccola rispetto alle durate")
-        
-        for i in range(self._n):
-            for k in range(len(self._resources)):
-                if self._consumption[i][k] > self._resources[k]:
+        # ── Consumo non negativo e non eccedente la capacità ─────────────────
+        # Un consumo già superiore alla capacità rende l'attività
+        # inschedulabile a prescindere — inammissibilità rilevabile a priori.
+        for i in self._activities:
+            for k, c in enumerate(self._consumption[i]):
+                if c < 0:
                     raise ValueError(
-                        f"Attività {i} richiede più risorsa {k} della capacità disponibile"
+                        f"consumption[{i}][{k}] = {c}: "
+                        f"i consumi non possono essere negativi."
                     )
+                if c > self._resources[k]:
+                    raise ValueError(
+                        f"consumption[{i}][{k}] = {c} supera la disponibilità "
+                        f"della risorsa {k} = {self._resources[k]}: "
+                        f"l'attività {i} non potrà mai essere schedulata."
+                    )
+
+        # ── Attività fittizie ─────────────────────────────────────────────────
+        if self._durations[0] != 0 or self._durations[self._n - 1] != 0:
+            raise ValueError(
+                "Le attività fittizie 0 e n-1 devono avere durata 0."
+            )
+
+        if any(self._consumption[0][k] != 0 for k in range(m)):
+            raise ValueError(
+                "L'attività fittizia iniziale (0) non deve consumare risorse."
+            )
+
+        if any(self._consumption[self._n - 1][k] != 0 for k in range(m)):
+            raise ValueError(
+                "L'attività fittizia finale (n-1) non deve consumare risorse."
+            )
+
+        # ── Deadline ──────────────────────────────────────────────────────────
+        if self._deadline <= 0:
+            raise ValueError(
+                f"deadline = {self._deadline}: deve essere strettamente positiva."
+            )
+
+        # Lower bound banale: anche nel caso in cui tutte le attività si svolgessero 
+        # in parallelo, il lower_bound è almeno uguale al massimo delle durate
+        lower_bound = max(self._durations)
+        if self._deadline < lower_bound:
+            raise ValueError(
+                f"deadline = {self._deadline} è inferiore alla durata massima "
+                f"({lower_bound}): il problema è strutturalmente inammissibile."
+            )
+
+        # ── Validità degli archi di precedenza ───────────────────────────────
+        valid_ids = set(self._activities)
+        seen_edges = set()
+
+        for idx, (i, j) in enumerate(self._precedences):
+
+            # Indici fuori range
+            if i not in valid_ids or j not in valid_ids:
+                raise ValueError(
+                    f"Precedenza [{idx}] ({i} → {j}): uno o entrambi gli indici "
+                    f"sono fuori dal range [0, {self._n - 1}]."
+                )
+
+            # Auto-precedenza
+            if i == j:
+                raise ValueError(
+                    f"Precedenza [{idx}]: auto-precedenza sull'attività {i} "
+                    f"non ammessa."
+                )
+
+            # L'attività fittizia iniziale non può essere successore
+            if j == 0:
+                raise ValueError(
+                    f"Precedenza [{idx}]: l'attività fittizia iniziale (0) "
+                    f"non può essere successore di nessuna attività."
+                )
+
+            # L'attività fittizia finale non può essere predecessore
+            if i == self._n - 1:
+                raise ValueError(
+                    f"Precedenza [{idx}]: l'attività fittizia finale ({self._n - 1}) "
+                    f"non può essere predecessore di nessuna attività."
+                )
+
+            # Archi duplicati
+            if (i, j) in seen_edges:
+                raise ValueError(
+                    f"Precedenza [{idx}] ({i} → {j}): arco duplicato."
+                )
+            seen_edges.add((i, j))
+
+        # ── Cicli nel grafo delle precedenze ─────────────────────────────────
+        if _has_cycle(self._n, self._precedences):
+            raise ValueError(
+                "Il grafo delle precedenze contiene almeno un ciclo: "
+                "il problema non ha soluzioni ammissibili."
+            )
         
-        if has_cycle(self._n, self._precedences):
-            raise ValueError("Il grafo delle precedenze contiene un ciclo")
-                
-    def _earliest_start(self, i: int):
-        """
-        Calcola l'earliest start time per l'attività i,
-        considerando i predecessori. Riduce notevolmente
-        il dominio delle variabili x[i][t].
-        """
-        if i == 0:
-            return 0
-        preds = [j for (j, k) in self._precedences if k == i]
-        if not preds:
-            return 0
-        return max(self._earliest_start(j) + self._durations[j] for j in preds)
+    def _earliest_start(self): 
+        """ Calcola l'earliest start time per l'attività i, considerando i predecessori. 
+        Riduce notevolmente il dominio delle variabili x[i][t]. 
+        """ 
+        graph = defaultdict(list) 
+        indegree = [0]*self._n 
+        
+        for i, j in self._precedences: 
+            graph[i].append(j) 
+            indegree[j] += 1 
+        
+        ES = [0]*self._n 
+        queue = deque([i for i in range(self._n) if indegree[i] == 0]) 
+        
+        while queue: 
+            u = queue.popleft() 
+            for v in graph[u]: 
+                ES[v] = max(ES[v], ES[u] + self._durations[u]) 
+                indegree[v] -= 1 
+                if indegree[v] == 0: 
+                    queue.append(v) 
+        return ES
     
     def _latest_start(self, i: int):
         """
@@ -143,202 +250,261 @@ class Model():
         ridurre il dominio di x[i][t].
         """
         return self._deadline - self._durations[i]
-    
-    def build_model(self):
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # BUILD MODEL
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def build_model(self) -> tuple[cpm.CpModel, dict[int, cpm.IntVar]]:
         """
-        Costruisce il modello MILP e restituisce (prob, x).
+        Costruisce il modello CP-SAT e restituisce (model, start).
 
         Restituisce
         -----------
-        prob : pulp.LpProblem
-            Il problema di ottimizzazione pronto per essere risolto.
-        x : dict[int, dict[int, pulp.LpVariable]]
-            Variabili binarie x[i][t].
+        model : cp_model.CpModel
+            Modello pronto per essere passato al solver.
+        start : dict[int, cp_model.IntVar]
+            Variabili di inizio per ogni attività, utili per leggere
+            la soluzione dopo la risoluzione.
         """
-        prob = pulp.LpProblem("RCPSP", pulp.LpMinimize)
+        model = cpm.CpModel()
 
-        # —— Dominio ridotto per ogni attività ————————————————————————————————
-        # ES[i] e LS[i] restringono gli istanti t ammissibili per x[i][t],
-        # riducendo il numero di variabili senza perdere l'ottimalità.
-        ES = {i: self._earliest_start(i) for i in self._activities}
-        LS = {i: self._latest_start(i) for i in self._activities}
+        # Calcolo gli intervalli ammissibili nei quali una certa attività può essere completata
+        ES = self._earliest_start()
+        LS = {i: self._deadline - self._durations[i] for i in self._activities}
 
-        # —— Variabili decisionali ————————————————————————————————————————————
-        # x[i][t] = 1 se l'attività i inizia all'istante t
-        x = {
-            i: {
-                t: pulp.LpVariable(f"x_{i}_{t}", cat="Binary")
-                for t in range(ES[i], LS[i] + 1)
-            }
+        # ── Variabili decisionali ─────────────────────────────────────────────
+        start = {
+            i: model.new_int_var(ES[i], LS[i], f"start_{i}")
             for i in self._activities
         }
-        
-        # Fisso l'attività iniziale a t = 0
-        prob += pulp.lpSum(t * x[0][t] for t in x[0]) == 0, "Inizia_a_zero"
 
-        # ── Funzione obiettivo ───────────────────────────────────────────────
-        # Minimizza il tempo di inizio dell'attività fittizia finale (n-1),
-        # che coincide con il makespan (poiché la sua durata è 0).
-        last = self._n - 1
-        prob += pulp.lpSum(
-            t * x[last][t] for t in x[last]
-        ), "Minimizza_Makespan"
-
-        # ── Vincolo 1: ogni attività inizia esattamente una volta ────────────
-        for i in self._activities:
-            prob += (
-                pulp.lpSum(x[i][t] for t in x[i]) == 1,
-                f"Inizia_una_sola_volta_{i}",
+        # NewIntervalVar lega internamente start, durata fissa e end:
+        # end[i] = start[i] + durations[i] è già implicito.
+        interval = {
+            i: model.new_fixed_size_interval_var(
+                start[i],
+                self._durations[i],
+                f"interval_{i}",
             )
+            for i in self._activities
+        }
 
-        # ── Vincolo 2: precedenze finish-to-start ────────────────────────────
-        # Se (i, j) ∈ A, allora S_j >= S_i + p_i, dove A = precedences
-        # Formulato come: Σ_t t·x[j][t] >= Σ_t t·x[i][t] + p_i
+        # ── Attività fittizia iniziale fissata a 0 ────────────────────────────
+        model.add(start[0] == 0)
+
+        # ── Vincolo 1: precedenze finish-to-start ─────────────────────────────
+        # start[j] >= end[i]  ⟺  start[j] >= start[i] + durations[i]
         for (i, j) in self._precedences:
-            prob += (
-                pulp.lpSum(t * x[j][t] for t in x[j])
-                >= pulp.lpSum(t * x[i][t] for t in x[i]) + self._durations[i],
-                f"Precedenza_{i}_{j}",
-            )
+            model.add(start[j] >= start[i] + self._durations[i])
 
-        # ── Vincolo 3: capacità delle risorse ────────────────────────────────
-        # Per ogni istante t e ogni risorsa k:
-        # Σ_i r[i][k] · Σ_{t'=t-p_i+1}^{t} x[i][t'] <= R[k]
-        #
-        # Il termine interno seleziona le attività in esecuzione in t,
-        # cioè quelle iniziate in uno degli ultimi p_i istanti.
-        for t in self._time_horizon:
-            for k in range(self._m):
-                in_execution = []
-                for i in self._activities:
-                    if self._consumption[i][k] == 0:
-                        continue
-                    pi = self._durations[i]
-                    # L'attività i è attiva in t se è partita in [t-pi+1, t]
-                    active_starts = [
-                        x[i][s]
-                        for s in range(max(ES[i], t - pi + 1), min(LS[i], t) + 1)
-                        if s in x[i]
-                    ]
-                    if active_starts:
-                        in_execution.append(
-                            self._consumption[i][k] * pulp.lpSum(active_starts)
-                        )
-                if in_execution:
-                    prob += (
-                        pulp.lpSum(in_execution) <= self._resources[k],
-                        f"Resource_{k}_t{t}",
-                    )
-        return prob, x
-    
-    def solve(self, solver=None, time_limit: int = 300, verbose: bool = False):
+        # ── Vincolo 2: risorse rinnovabili (add_cumulative) ────────────────────
+        # Per ogni risorsa k, la somma dei consumi delle attività attive
+        # in ogni istante non deve superare la disponibilità R[k].
+        # CP-SAT gestisce questo con propagatori specializzati di scheduling
+        # (edge finding, not-first/not-last) molto più efficienti di
+        # una formulazione MILP esplicita per istante.
+        for k in range(len(self._resources)):
+            intervals_k = []
+            demands_k = []
+            for i in self._activities:
+                if self._consumption[i][k] > 0:
+                    intervals_k.append(interval[i])
+                    demands_k.append(self._consumption[i][k])
+            if intervals_k:
+                model.add_cumulative(intervals_k, demands_k, self._resources[k])
+        
+        # ── Vincolo 3: tutte le attività finisco prima della deadline ─────────
+        for i in self._activities:
+            model.add(start[i] + self._durations[i] <= self._deadline)
+
+        # ── Obiettivo: minimizza il makespan ──────────────────────────────────
+        # L'attività fittizia finale (n-1) ha durata 0, quindi
+        # start[n-1] coincide con il makespan del progetto.
+        model.minimize(start[self._n - 1])
+
+        return model, start
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # SOLVE
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def solve(self, time_limit: int = 300, verbose: bool = False) -> str:
         """
-        Risolve il modello e popola self.start_times, self.makespan e self.status.
+        Risolve il modello e popola start_times, makespan e status.
 
         Parametri
         ----------
-        solver : pulp.LpSolver | None
-            Solver da utilizzare. Se None usa CBC (default PuLP).
         time_limit : int
             Limite di tempo in secondi per il solver (default 300s).
         verbose : bool
-            Se True mostra l'output del solver.
+            Se True mostra il log di ricerca del solver.
 
         Restituisce
         -----------
         status : str
-            Stato della soluzione: 'Optimal', 'Feasible', 'Infeasible', 'Undefined'.
+            Stringa descrittiva dello stato: 'OPTIMAL', 'FEASIBLE',
+            'INFEASIBLE' o 'UNKNOWN'.
         """
-        prob, x = self.build_model()
+        model, start = self.build_model()
 
-        if solver is None:
-            solver = pulp.PULP_CBC_CMD(
-                timeLimit=time_limit,
-                msg=1 if verbose else 0,
-            )
+        solver = cpm.CpSolver()
+        solver.parameters.max_time_in_seconds = time_limit
+        solver.parameters.log_search_progress = verbose
 
-        prob.solve(solver)
+        raw_status = solver.solve(model)
+        self._status = raw_status
 
-        self._status = pulp.LpStatus[prob.status]
+        if raw_status in (cpm.OPTIMAL, cpm.FEASIBLE):
+            self._start_times = {
+                i: solver.value(start[i]) for i in self._activities
+            }
+            self._makespan = self._start_times[self._n - 1]
 
-        if prob.status in (1, -2):  # Optimal o Feasible (time limit)
-            self._start_times = {}
-            for i in self._activities:
-                for t, var in x[i].items():
-                    if pulp.value(var) is not None and pulp.value(var) > 0.5:
-                        self._start_times[i] = t
-                        break
-            last = self._n - 1
-            self._makespan = self._start_times.get(last)
+        return solver.status_name(raw_status)
 
-        return self._status
+    # ──────────────────────────────────────────────────────────────────────────
+    # OUTPUT
+    # ──────────────────────────────────────────────────────────────────────────
 
     def get_schedule(self) -> list[dict]:
         """
-        Restituisce la schedulazione come lista di dizionari, uno per attività.
-        Richiede che solve() sia stato chiamato con successo.
+        Restituisce la schedulazione come lista di dizionari ordinata per
+        tempo di inizio. Richiede che solve() sia stato chiamato con successo.
+
+        Ogni elemento ha le chiavi: activity, start, end, duration.
         """
         if self._start_times is None:
-            raise RuntimeError("Il modello non è ancora stato risolto. Chiamare solve() prima.")
+            raise RuntimeError(
+                "Il modello non è ancora stato risolto. Chiamare solve() prima."
+            )
 
-        schedule = []
-        for i in self._activities:
-            s = self._start_times.get(i)
-            schedule.append({
+        schedule = [
+            {
                 "activity": i,
-                "start": s,
-                "end": s + self._durations[i] if s is not None else None,
+                "start":    self._start_times[i],
+                "end":      self._start_times[i] + self._durations[i],
                 "duration": self._durations[i],
-            })
-        return sorted(schedule, key=lambda r: r["start"] or 0)
-    
-def has_cycle(n, precedences):
-        """
-        Metodo per controllare che il grafo delle precedenze non abbia un ciclo.
-        """
-        from collections import defaultdict, deque
+            }
+            for i in self._activities
+        ]
 
-        graph = defaultdict(list)
-        indegree = [0]*n
+        return sorted(schedule, key=lambda r: r["start"])
 
-        for i, j in precedences:
-            graph[i].append(j)
-            indegree[j] += 1
+    # ──────────────────────────────────────────────────────────────────────────
+    # PROPERTIES
+    # ──────────────────────────────────────────────────────────────────────────
 
-        queue = deque([i for i in range(n) if indegree[i] == 0])
-        visited = 0
+    @property
+    def makespan(self) -> int | None:
+        return self._makespan
 
-        while queue:
-            node = queue.popleft()
-            visited += 1
-            for nei in graph[node]:
-                indegree[nei] -= 1
-                if indegree[nei] == 0:
-                    queue.append(nei)
+    @property
+    def status(self) -> int | None:
+        return self._status
 
-        return visited != n
+    @property
+    def start_times(self) -> dict[int, int] | None:
+        return self._start_times
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# UTILITY — rilevamento cicli
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _has_cycle(n: int, precedences: list[tuple[int, int]]) -> bool:
+    """
+    Rileva la presenza di cicli nel grafo delle precedenze tramite
+    l'algoritmo di Kahn (ordinamento topologico BFS).
+    Restituisce True se esiste almeno un ciclo, False altrimenti.
+    """
+    graph: dict[int, list[int]] = defaultdict(list)
+    indegree = [0] * n
+
+    for i, j in precedences:
+        graph[i].append(j)
+        indegree[j] += 1
+
+    queue = deque(node for node in range(n) if indegree[node] == 0)
+    visited = 0
+
+    while queue:
+        node = queue.popleft()
+        visited += 1
+        for neighbor in graph[node]:
+            indegree[neighbor] -= 1
+            if indegree[neighbor] == 0:
+                queue.append(neighbor)
+
+    return visited != n
 
 def test_modulo():
     import time
     """
     Metodo per testare il modulo quando eseguito. I dati di input sono inventati.
     """
-    num_attività = 10
-    durate = [0, 4, 5, 7, 3, 14, 1, 5, 7, 0]
-    precedenze = [(1, 2), (5, 6)]
-    risorse = [8, 6]
-    consumo = [[0, 0],
-               [4, 3],
-               [5, 0],
-               [0, 6],
-               [8, 6],
-               [5, 4],
-               [1, 4],
-               [0, 6],
-               [8, 0],
-               [0, 0],
-               ]
-    scadenza = 40
+    num_attività = 50
+    durate = [
+        0,
+        3, 5, 2, 6, 4, 7, 3, 5, 6,
+        4, 8, 3, 5, 7, 6, 2, 4, 5, 3,
+        6, 4, 7, 3, 5, 6, 8, 4, 3, 5,
+        7, 6, 2, 4, 5, 3, 6, 4, 7, 3,
+        5, 6, 4, 8, 3, 5, 7, 4, 4,
+        0
+    ]
+    precedenze = [
+        (0,1),(0,2),(0,3),
+
+        (1,4),(1,5),
+        (2,6),(2,7),
+        (3,8),(3,9),
+
+        (4,10),(5,10),
+        (6,11),(7,11),
+        (8,12),(9,12),
+
+        (10,13),(11,14),(12,15),
+
+        (13,16),(13,17),
+        (14,18),(14,19),
+        (15,20),(15,21),
+
+        (16,22),(17,22),
+        (18,23),(19,23),
+        (20,24),(21,24),
+
+        (22,25),(23,26),(24,27),
+
+        (25,28),(26,29),(27,30),
+
+        (28,31),(29,32),(30,33),
+
+        (31,34),(32,35),(33,36),
+
+        (34,37),(35,38),(36,39),
+
+        (37,40),(38,41),(39,42),
+
+        (40,43),(41,44),(42,45),
+
+        (43,46),(44,46),(45,47),
+
+        (46,48),(47,48),
+
+        (48,49)
+    ]
+    risorse = [10, 8, 6]
+    consumo = [
+        [0,0,0],
+        [3,2,1],[4,1,2],[2,2,1],[5,3,2],[3,2,2],[6,4,2],[2,3,1],[4,2,2],[5,3,1],
+        [3,3,2],[6,4,3],[2,2,1],[4,3,2],[5,3,3],[4,2,2],[2,1,1],[3,2,1],[4,3,2],[2,2,1],
+        [5,3,2],[3,2,1],[6,4,3],[2,2,1],[4,3,2],[5,3,2],[6,4,3],[3,2,1],[2,1,1],[4,2,2],
+        [5,3,2],[4,2,2],[2,1,1],[3,2,1],[4,3,2],[2,2,1],[5,3,2],[3,2,1],[6,4,3],[2,2,1],
+        [4,3,2],[5,3,2],[3,2,1],[6,4,3],[2,2,1],[4,3,2],[5,3,2],[3,2,1],[5,3,1],
+        [0,0,0]
+    ]
+    scadenza = 120
 
     all_activities = set(range(num_attività))
     successors = {i for (i, j) in precedenze}
@@ -355,6 +521,7 @@ def test_modulo():
     schedula = modello.get_schedule()
     print(f"="*60)
     print(f"Il problema ha avuto esito: {status}")
+    print(f"\nSoluzione trovata: {modello.makespan} giorni")
     print(f"-"*60)
     print(f"Il solver ha impiegato {end_time-start_time:.6f} secondi")
     print(f"-"*60)
@@ -363,7 +530,3 @@ def test_modulo():
 
 if __name__ == "__main__":
     test_modulo()
-
-
-
-    
