@@ -1,7 +1,7 @@
 """
-rcpsp.py
---------
-Implementazione del modello RCPSP classico (Resource-Constrained Project
+rcpsp_max.py
+------------
+Implementazione del modello RCPSP/Max (Resource-Constrained Project
 Scheduling Problem) tramite CP-SAT (Constraint Programming + SAT).
 
 Obiettivo: minimizzare il makespan, ovvero il tempo di inizio dell'attività
@@ -12,9 +12,24 @@ Variabili decisionali:
     interval[i] — variabile intervallo (lega start, durata, end)
 
 Vincoli fondamentali:
-    1. Precedenze finish-to-start: start[j] >= start[i] + durata[i] per ogni (i, j) in A_precedencesFS.
+    1. Precedenze generalizzate (time-lag constraints):
+       Tutti i vincoli tra attività sono espressi nella forma unificata:
+            start[j] ≥ start[i] + δ(i,j)
+       dove δ(i,j) rappresenta il time-lag minimo tra l'inizio di i e j.
+       Questa formulazione consente di rappresentare:
+            - Finish-to-Start (FS): δ(i,j) = durata[i] + lag
+            - Start-to-Start  (SS): δ(i,j) = lag
+            - Finish-to-Finish (FF): δ(i,j) = durata[i] - durata[j] + lag
+            - Start-to-Finish (SF): δ(i,j) = -durata[j] + lag
     2. Risorse rinnovabili: add_cumulative per ogni risorsa k.
     3. Attività fittizia iniziale fissata a t=0.
+    7. Time-lag minimi e massimi:
+       È possibile imporre anche vincoli superiori tra attività: start[j] ≤ start[i] + Δ(i,j)
+       consentendo di modellare intervalli temporali completi tra attività.
+    8. Release dates (date di disponibilità):
+       Ogni attività può avere un tempo minimo di inizio: start[i] ≥ r[i]
+    9. Due dates / deadlines per attività:
+       Ogni attività può avere un tempo massimo di completamento: start[i] + durata[i] ≤ d[i]
 """
 
 from collections import defaultdict, deque
@@ -22,46 +37,65 @@ from ortools.sat.python import cp_model as cpm
 
 class Model:
     """
-    Modello CP-SAT per il problema RCPSP classico.
+    Modello CP-SAT per RCPSP/Max.
 
     Parametri
-    ----------
+    ---------
     n : int
         Numero totale di attività incluse le due fittizie.
         Attività 0 = fittizia iniziale, attività n-1 = fittizia finale.
     durations : list[int]
         Vettore delle durate p. durations[0] = durations[n-1] = 0.
-    precedences : list[tuple[int, int]]
-        Lista di coppie (i, j): i deve completarsi prima che j inizi.
     resources : list[int]
         Vettore delle disponibilità R[k] per ciascuna delle m risorse.
     consumption : list[list[int]]
         Matrice r[i][k]: unità di risorsa k usate dall'attività i
         per ogni istante in cui è in esecuzione.
         consumption[0][k] = consumption[n-1][k] = 0 per ogni k.
-    deadline : int
-        Orizzonte temporale massimo D. Definisce il dominio delle variabili.
+    precedences : list[tuple[int, int, int, int | None]]
+        Lista dei vincoli di precedenza generalizzati nella forma:
+            (i, j, min_lag, max_lag)
+        che rappresentano:
+            min_lag ≤ start[j] - start[i] ≤ max_lag
+        dove:
+            - min_lag = δ(i,j) è il time-lag minimo
+            - max_lag è opzionale (None se non presente)
+        Questa formulazione unificata permette di rappresentare:
+            - FS, SS, FF, SF
+            - vincoli con lag minimo e massimo
+    horizon : int
+        Orizzonte temporale superiore per il dominio delle variabili.
+    release_dates : list[int] | None
+        Vettore r[i]: tempo minimo di inizio per ogni attività.
+        Se None, nessun vincolo di rilascio è applicato.
+    due_dates : list[int] | None
+        Vettore d[i]: tempo massimo di completamento per ogni attività.
+        Se None, nessun vincolo di deadline è applicato.
     validate_input : bool
         Se True esegue la validazione degli input prima di costruire il modello.
     """
 
     def __init__(
         self,
-        n: int,
+        n: int, 
         durations: list[int],
-        precedences: list[tuple[int, int]],
         resources: list[int],
         consumption: list[list[int]],
-        deadline: int,
-        validate_input: bool = True,
+        precedences: list[tuple[int, int, int, int | None]],
+        horizon: int,
+        release_dates: list[int | None] | None,
+        due_dates: list[int | None] | None,
+        validate_input : bool = True
     ):
         self._n = n
         self._activities = list(range(n))
         self._durations = durations
-        self._precedences = precedences
         self._resources = resources
         self._consumption = consumption
-        self._deadline = deadline
+        self._precedences = precedences
+        self._horizon = horizon
+        self._release_dates = release_dates
+        self._due_dates = due_dates
 
         # Risultati (popolati da solve)
         self._start_times: dict[int, int] | None = None
@@ -72,10 +106,10 @@ class Model:
             self._validate_inputs()
 
     # ──────────────────────────────────────────────────────────────────────────
-    # VALIDAZIONE INPUT
+    # VALIDATE INPUTS
     # ──────────────────────────────────────────────────────────────────────────
 
-    def _validate_inputs(self) -> None:
+    def _validate_inputs(self):
         """
         Verifica la coerenza e ammissibilità degli input prima di costruire
         il modello. Rileva a priori le situazioni di inammissibilità strutturale
@@ -139,6 +173,17 @@ class Model:
                         f"della risorsa {k} = {self._resources[k]}: "
                         f"l'attività {i} non potrà mai essere schedulata."
                     )
+        
+        # ── Validazione su release_dates e due_dates ─────────────────────────
+        if self._release_dates is not None and self._due_dates is not None:
+            for i in self._activities:
+                if self._release_dates[i] is not None and self._due_dates[i] is not None:
+                    if self._release_dates[i] > self._due_dates[i] - self._durations[i]:
+                        raise ValueError(
+                            f"{self._release_dates[i]} non valida per l'attività {i}, "
+                            f"non garantisce che la data di scadenza sia rispettata: "
+                            f"l'attività {i} non potrà mai essere schedulata."
+                        )
 
         # ── Attività fittizie ─────────────────────────────────────────────────
         if self._durations[0] != 0 or self._durations[self._n - 1] != 0:
@@ -157,99 +202,158 @@ class Model:
             )
 
         # ── Deadline ──────────────────────────────────────────────────────────
-        if self._deadline <= 0:
+        if self._horizon <= 0:
             raise ValueError(
-                f"deadline = {self._deadline}: deve essere strettamente positiva."
+                f"deadline = {self._horizon}: deve essere strettamente positiva."
             )
 
         # Lower bound banale: anche nel caso in cui tutte le attività si svolgessero 
         # in parallelo, il lower_bound è almeno uguale al massimo delle durate
         lower_bound = max(self._durations)
-        if self._deadline < lower_bound:
+        if self._horizon < lower_bound:
             raise ValueError(
-                f"deadline = {self._deadline} è inferiore alla durata massima "
+                f"deadline = {self._horizon} è inferiore alla durata massima "
                 f"({lower_bound}): il problema è strutturalmente inammissibile."
             )
-
+        
         # ── Validità degli archi di precedenza ───────────────────────────────
         valid_ids = set(self._activities)
         seen_edges = set()
 
-        for idx, (i, j) in enumerate(self._precedences):
+        for idx, (i, j, min_lag, max_lag) in enumerate(self._precedences):
 
-            # Indici fuori range
+            # ── Indici validi ─────────────────────────────
             if i not in valid_ids or j not in valid_ids:
                 raise ValueError(
-                    f"Precedenza [{idx}] ({i} → {j}): uno o entrambi gli indici "
-                    f"sono fuori dal range [0, {self._n - 1}]."
+                    f"Precedenza [{idx}] ({i} → {j}): indici fuori range."
                 )
 
-            # Auto-precedenza
+            # ── Auto-loop ────────────────────────────────
             if i == j:
                 raise ValueError(
-                    f"Precedenza [{idx}]: auto-precedenza sull'attività {i} "
-                    f"non ammessa."
+                    f"Precedenza [{idx}]: self-loop non ammesso ({i} → {j})."
                 )
 
-            # L'attività fittizia iniziale non può essere successore
+            # ── Dummy nodes ──────────────────────────────
             if j == 0:
                 raise ValueError(
-                    f"Precedenza [{idx}]: l'attività fittizia iniziale (0) "
-                    f"non può essere successore di nessuna attività."
+                    f"Precedenza [{idx}]: attività 0 non può essere successore."
                 )
 
-            # L'attività fittizia finale non può essere predecessore
             if i == self._n - 1:
                 raise ValueError(
-                    f"Precedenza [{idx}]: l'attività fittizia finale ({self._n - 1}) "
-                    f"non può essere predecessore di nessuna attività."
+                    f"Precedenza [{idx}]: attività finale non può essere predecessore."
                 )
 
-            # Archi duplicati
+            # ── min_lag ─────────────────────────────────
+            if min_lag is None:
+                raise ValueError(
+                    f"Precedenza [{idx}] ({i} → {j}): min_lag mancante."
+                )
+
+            # ── max_lag ─────────────────────────────────
+            if max_lag is not None and max_lag < min_lag:
+                raise ValueError(
+                    f"Precedenza [{idx}] ({i} → {j}): max_lag < min_lag."
+                )
+
+            # ── duplicati ───────────────────────────────
             if (i, j) in seen_edges:
                 raise ValueError(
-                    f"Precedenza [{idx}] ({i} → {j}): arco duplicato."
+                    f"Precedenza duplicata ({i} → {j})."
                 )
             seen_edges.add((i, j))
 
         # ── Cicli nel grafo delle precedenze ─────────────────────────────────
-        if _has_cycle(self._n, self._precedences):
-            raise ValueError(
-                "Il grafo delle precedenze contiene almeno un ciclo: "
-                "il problema non ha soluzioni ammissibili."
-            )
+        _check_time_feasibility(self._precedences, self._n)
         
-    def _earliest_start(self): 
-        """ 
-        Calcola l'earliest start time per l'attività i, considerando i predecessori. 
-        Riduce notevolmente il dominio delle variabili start[i]. 
-        """ 
-        graph = defaultdict(list) 
-        indegree = [0]*self._n 
-        
-        for i, j in self._precedences: 
-            graph[i].append(j) 
-            indegree[j] += 1 
-        
-        ES = [0]*self._n 
-        queue = deque([i for i in range(self._n) if indegree[i] == 0]) 
-        
-        while queue: 
-            u = queue.popleft() 
-            for v in graph[u]: 
-                ES[v] = max(ES[v], ES[u] + self._durations[u]) 
-                indegree[v] -= 1 
-                if indegree[v] == 0: 
-                    queue.append(v) 
+        # ── Release e due date validation ────────────────────────────────────
+        if self._release_dates is not None:
+            if len(self._release_dates) != self._n:
+                raise ValueError("release_dates dimensione errata")
+
+        if self._due_dates is not None:
+            if len(self._due_dates) != self._n:
+                raise ValueError("due_dates dimensione errata")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # RIDUZIONE DOMINIO VARIABILI
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _earliest_start(self):
+        """
+        Calcola gli earliest start ES[i] considerando:
+        - precedenze generalizzate (min_lag)
+        - release dates
+
+        Risolve un longest path su grafo aciclico.
+        """
+        graph = defaultdict(list)
+        indegree = [0] * self._n
+
+        # costruzione grafo con pesi = min_lag
+        for (i, j, min_lag, _) in self._precedences:
+            graph[i].append((j, min_lag))
+            indegree[j] += 1
+
+        # inizializzazione
+        ES = [0] * self._n
+
+        # release dates
+        if self._release_dates is not None:
+            for i in range(self._n):
+                if self._release_dates[i] is not None:
+                    ES[i] = max(ES[i], self._release_dates[i])
+
+        # topological order (Kahn)
+        queue = deque([i for i in range(self._n) if indegree[i] == 0])
+
+        while queue:
+            u = queue.popleft()
+            for v, lag in graph[u]:
+                ES[v] = max(ES[v], ES[u] + lag)
+                indegree[v] -= 1
+                if indegree[v] == 0:
+                    queue.append(v)
+
         return ES
     
-    def _latest_start(self, i: int):
+    def _latest_start(self):
         """
-        Calcola il latest start time ammissibile per 
-        l'attività i rispettando la deadline. Serve per 
-        ridurre il dominio di start[i].
+        Calcola LS[i] considerando:
+        - horizon
+        - due dates
+        - max_lag (se presenti)
+
+        Backward pass su grafo.
         """
-        return self._deadline - self._durations[i]
+        graph = defaultdict(list)
+
+        # grafo inverso per backward
+        for (i, j, _, max_lag) in self._precedences:
+            if max_lag is not None:
+                graph[j].append((i, max_lag))
+
+        # inizializzazione
+        LS = [self._horizon - self._durations[i] for i in range(self._n)]
+
+        # due dates
+        if self._due_dates is not None:
+            for i in range(self._n):
+                if self._due_dates[i] is not None:
+                    LS[i] = min(LS[i], self._due_dates[i] - self._durations[i])
+
+        # backward relaxation (tipo Bellman-Ford light)
+        updated = True
+        while updated:
+            updated = False
+            for j in range(self._n):
+                for i, max_lag in graph[j]:
+                    if LS[i] > LS[j] + max_lag:
+                        LS[i] = LS[j] + max_lag
+                        updated = True
+
+        return LS
 
     # ──────────────────────────────────────────────────────────────────────────
     # BUILD MODEL
@@ -271,9 +375,15 @@ class Model:
         """
         model = cpm.CpModel()
 
-        # Calcolo gli intervalli ammissibili nei quali una certa attività può essere completata
+        # Calcolo degli intervalli ammissibili
         ES = self._earliest_start()
-        LS = {i: self._latest_start(i) for i in self._activities}
+        LS = self._latest_start()
+
+        for i in range(self._n):
+            if ES[i] > LS[i]:
+                raise ValueError(
+                    f"Attività {i} infeasible: ES={ES[i]} > LS={LS[i]}"
+                )
 
         # ── Variabili decisionali ─────────────────────────────────────────────
         start = {
@@ -293,7 +403,7 @@ class Model:
         }
 
         # Creo la variabile Cmax
-        Cmax = model.new_int_var(0, self._deadline, "makespan")
+        Cmax = model.new_int_var(0, self._horizon, "makespan")
 
         # ── Attività fittizia iniziale fissata a 0 ────────────────────────────
         model.add(start[0] == 0)
@@ -305,10 +415,12 @@ class Model:
             if i != last:
                 model.add(start[last] >= start[i] + self._durations[i])
 
-        # ── Vincolo 1: precedenze finish-to-start ─────────────────────────────
-        # start[j] >= end[i]  ⟺  start[j] >= start[i] + durations[i]
-        for (i, j) in self._precedences:
-            model.add(start[j] >= start[i] + self._durations[i])
+        # ── Vincolo 1: precedenze generalizzate ───────────────────────────────
+        # start[j] ≥ start[i] + δ(i,j)
+        for (i, j, min_lag, max_lag) in self._precedences:
+            model.add(start[j] >= start[i] + min_lag)
+            if max_lag is not None:
+                model.add(start[j] - start[i] <= max_lag)
 
         # ── Vincolo 2: risorse rinnovabili (add_cumulative) ────────────────────
         # Per ogni risorsa k, la somma dei consumi delle attività attive
@@ -326,6 +438,18 @@ class Model:
         # ── Vincolo 3: definizione del makespan Cmax ──────────────────────────
         for i in self._activities:
             model.add(Cmax >= start[i] + self._durations[i])
+
+        # ── Vincolo 4: eventuali release_dates ────────────────────────────────
+        if self._release_dates is not None:
+            for i in self._activities:
+                if self._release_dates[i] is not None:
+                    model.add(start[i] >= self._release_dates[i])
+
+        # ── Vincolo 5: eventuali due_dates ────────────────────────────────────
+        if self._due_dates is not None:
+            for i in self._activities:
+                if self._due_dates[i] is not None:
+                    model.add(start[i] + self._durations[i] <=  self._due_dates[i])
 
         # ── Obiettivo: minimizza il makespan ──────────────────────────────────
         model.minimize(Cmax)
@@ -353,7 +477,7 @@ class Model:
             Stringa descrittiva dello stato: 'OPTIMAL', 'FEASIBLE',
             'INFEASIBLE' o 'UNKNOWN'.
         """
-        model, start, Cmax= self.build_model()
+        model, start, Cmax = self.build_model()
 
         solver = cpm.CpSolver()
         solver.parameters.max_time_in_seconds = time_limit
@@ -369,7 +493,7 @@ class Model:
             self._makespan = solver.value(Cmax)
 
         return solver.status_name(raw_status)
-
+    
     # ──────────────────────────────────────────────────────────────────────────
     # OUTPUT
     # ──────────────────────────────────────────────────────────────────────────
@@ -397,7 +521,7 @@ class Model:
         ]
 
         return sorted(schedule, key=lambda r: r["start"])
-
+    
     # ──────────────────────────────────────────────────────────────────────────
     # PROPERTIES
     # ──────────────────────────────────────────────────────────────────────────
@@ -413,44 +537,56 @@ class Model:
     @property
     def start_times(self) -> dict[int, int] | None:
         return self._start_times
-
-
+    
 # ──────────────────────────────────────────────────────────────────────────────
 # UTILITY — rilevamento cicli
 # ──────────────────────────────────────────────────────────────────────────────
-
-def _has_cycle(n: int, precedences: list[tuple[int, int]]) -> bool:
+    
+def _check_time_feasibility(precedences, n):
     """
-    Rileva la presenza di cicli nel grafo delle precedenze tramite
-    l'algoritmo di Kahn (ordinamento topologico BFS).
-    Restituisce True se esiste almeno un ciclo, False altrimenti.
+    Verifica che i vincoli di tipo:
+        start[j] ≥ start[i] + min_lag
+        start[j] ≤ start[i] + max_lag
+    siano consistenti.
     """
-    graph: dict[int, list[int]] = defaultdict(list)
-    indegree = [0] * n
 
-    for i, j in precedences:
-        graph[i].append(j)
-        indegree[j] += 1
+    # trasformiamo tutto in:
+    # start[j] ≥ start[i] + w
+    edges = []
 
-    queue = deque(node for node in range(n) if indegree[node] == 0)
-    visited = 0
+    for (i, j, min_lag, max_lag) in precedences:
+        edges.append((i, j, min_lag))
+        if max_lag is not None:
+            edges.append((j, i, -max_lag))
 
-    while queue:
-        node = queue.popleft()
-        visited += 1
-        for neighbor in graph[node]:
-            indegree[neighbor] -= 1
-            if indegree[neighbor] == 0:
-                queue.append(neighbor)
+    dist = [0] * n
 
-    return visited != n
+    # Bellman-Ford
+    for _ in range(n):
+        updated = False
+        for u, v, w in edges:
+            if dist[v] < dist[u] + w:
+                dist[v] = dist[u] + w
+                updated = True
+        if not updated:
+            return
+
+    # se ancora aggiornabile → ciclo positivo
+    raise ValueError(
+        "Vincoli temporali inconsistenti (positive cycle nei time-lag)."
+    )
 
 def test_modulo():
     import time
+
     """
-    Metodo per testare il modulo quando eseguito. I dati di input sono inventati.
+    Metodo per testare il modello RCPSP/Max.
+    I dati sono generati artificialmente.
     """
+
     num_attività = 50
+
+    # ── Durate ───────────────────────────────────────────────
     durate = [
         0,
         3, 5, 2, 6, 4, 7, 3, 5, 6,
@@ -460,7 +596,10 @@ def test_modulo():
         5, 6, 4, 8, 3, 5, 7, 4, 4,
         0
     ]
-    precedenze = [
+
+    # ── Precedenze (convertite in RCPSP/Max) ─────────────────
+    # FS con lag = 0 → min_lag = durata[i]
+    precedenze_base = [
         (0,1),(0,2),(0,3),
 
         (1,4),(1,5),
@@ -501,7 +640,16 @@ def test_modulo():
 
         (48,49)
     ]
+
+    # Conversione in (i, j, min_lag, max_lag)
+    precedenze = [
+        (i, j, durate[i], None)   # FS classico
+        for (i, j) in precedenze_base
+    ]
+
+    # ── Risorse ──────────────────────────────────────────────
     risorse = [10, 8, 6]
+
     consumo = [
         [0,0,0],
         [3,2,1],[4,1,2],[2,2,1],[5,3,2],[3,2,2],[6,4,2],[2,3,1],[4,2,2],[5,3,1],
@@ -511,29 +659,58 @@ def test_modulo():
         [4,3,2],[5,3,2],[3,2,1],[6,4,3],[2,2,1],[4,3,2],[5,3,2],[3,2,1],[5,3,1],
         [0,0,0]
     ]
-    scadenza = 120
 
+    # ── Horizon ──────────────────────────────────────────────
+    horizon = 120
+
+    # ── Collegamento automatico al nodo finale ───────────────
     all_activities = set(range(num_attività))
-    successors = {i for (i, j) in precedenze}
+    successors = {i for (i, _, _, _) in precedenze}
     terminal = all_activities - successors - {num_attività - 1}
 
     for i in terminal:
-        precedenze.append((i, num_attività - 1))
+        precedenze.append((i, num_attività - 1, durate[i], None))
 
-    modello = Model(num_attività, durate, precedenze, risorse, consumo, scadenza, validate_input=True)
-    modello.build_model()
+    # ── Release / Due dates (opzionali) ──────────────────────
+    release_dates = [0] * num_attività
+    due_dates = [None] * num_attività
+
+    # esempio: vincolo reale
+    release_dates[10] = 5
+    due_dates[20] = 60
+
+    # ── Creazione modello ───────────────────────────────────
+    modello = Model(
+        n=num_attività,
+        durations=durate,
+        resources=risorse,
+        consumption=consumo,
+        precedences=precedenze,
+        horizon=horizon,
+        release_dates=release_dates,
+        due_dates=due_dates,
+        validate_input=True
+    )
+
+    # ── Solve ───────────────────────────────────────────────
     start_time = time.time()
     status = modello.solve()
     end_time = time.time()
+
     schedula = modello.get_schedule()
-    print(f"="*60)
-    print(f"Il problema ha avuto esito: {status}")
-    print(f"\nSoluzione trovata: {modello.makespan} giorni")
-    print(f"-"*60)
-    print(f"Il solver ha impiegato {end_time-start_time:.6f} secondi")
-    print(f"-"*60)
-    print(schedula)
-    print(f"="*60)
+
+    # ── Output ──────────────────────────────────────────────
+    print("=" * 60)
+    print(f"Status: {status}")
+    print(f"Makespan: {modello.makespan}")
+    print("-" * 60)
+    print(f"Tempo solver: {end_time - start_time:.6f} sec")
+    print("-" * 60)
+
+    for task in schedula:
+        print(task)
+
+    print("=" * 60)
 
 if __name__ == "__main__":
     test_modulo()
