@@ -266,7 +266,7 @@ class Test:
         return len(errors) == 0
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Helper di stampa — da aggiungere fuori dalla classe
+# Report errors
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _report(errors: list[str], warnings: list[str]) -> None:

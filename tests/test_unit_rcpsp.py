@@ -190,7 +190,7 @@ class Test:
         return len(errors) == 0
     
 # ──────────────────────────────────────────────────────────────────────────────
-# Helper — da tenere fuori dalla classe
+# Report errors
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _report(errors: list[str]) -> None:
@@ -206,7 +206,7 @@ def _report(errors: list[str]) -> None:
     print("=" * 60)
 
 if __name__ == "__main__":
-    test = Test(dataset="tests/datasets/j120.sm/j1206_6.sm")
+    test = Test(dataset="tests/datasets/j120.sm/j1202_6.sm")
     test.build_model()
     test.solve_model()
     test.validate_solution()
