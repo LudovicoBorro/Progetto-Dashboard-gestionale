@@ -87,6 +87,7 @@ class SGSEngine:
                 if j in eligible_set:
                     break
             
+            # Inizializzo il nodo iniziale
             if j == 0:
                 start_times[j] = 0
                 finish_times[j] = 0
@@ -126,6 +127,7 @@ class SGSEngine:
 
                 t += 1
         
+        # Imposto il nodo finale
         last = self._n - 1
         start_times[last] = max(finish_times.values())
         finish_times[last] = start_times[last]
@@ -155,6 +157,10 @@ class SGSEngine:
         t = 0
         last = self._n - 1
 
+        start_times[0] = 0
+        finish_times[0] = 0
+        scheduled.add(0)
+
         while len(scheduled) < self._n - 1:
 
             # Rimuovo le attività terminate
@@ -175,16 +181,11 @@ class SGSEngine:
             ]
 
             # Ordino le attività eleggibili per priorità
-            eligible_sorted = [j for j in priority_list if j in eligible]
+            eligible_set = set(eligible)
+            eligible_sorted = [j for j in priority_list if j in eligible_set]
 
             # Tento la schedulazione
             for j in eligible_sorted:
-
-                if j == 0:
-                    start_times[j] = 0
-                    finish_times[j] = 0
-                    scheduled.add(j)
-                    continue
 
                 feasible = True
                 for r in range(len(self._resources)):
