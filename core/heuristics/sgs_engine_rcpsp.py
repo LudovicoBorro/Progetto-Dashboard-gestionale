@@ -49,6 +49,9 @@ class SGSEngine:
             validate_inputs(self)
 
     def serial(self, priority_list):
+
+        # Aggiungo le dummy activities nella priority_list
+        priority_list = [0] + priority_list + [self._n-1]
         
         # Inizializzazione
         preds_map = {i: [] for i in range(self._n)}
@@ -145,6 +148,9 @@ class SGSEngine:
         return sorted(schedule, key=lambda x: x["start"])
     
     def parallel(self, priority_list):
+
+        # Aggiungo le dummy activities nella priority_list
+        priority_list = [0] + priority_list + [self._n-1]
         
         # Inizializzazione
         preds_map = {i: [] for i in range(self._n)}
