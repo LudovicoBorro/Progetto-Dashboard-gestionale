@@ -65,7 +65,7 @@ class SGSEngine:
         consumption_profile = np.zeros((len(self._resources), horizon + 1), dtype=int)
 
         # Ciclo principale SGS
-        while len(scheduled) < self._n:
+        while len(scheduled) < self._n - 1:
 
             # Filtro le attività valide nella priority list,
             # cioè quelle che rispettano le precedenze

@@ -68,7 +68,7 @@ class SGSEngine:
 
         consumption_profile = np.zeros((len(self._resources), horizon + 1), dtype=int)
 
-        while len(scheduled) < self._n:
+        while len(scheduled) < self._n - 1:
 
             # Filtro attività valide
             eligible = [
