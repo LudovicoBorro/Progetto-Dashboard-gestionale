@@ -30,7 +30,7 @@ class SGSEngine:
             resources: list[int],
             consumption: list[list[int]],
             deadline: int,
-            validate_input: True,
+            validate_input: bool = True,
             ):
         self._n = n
         self._activities = list(range(n))
@@ -104,6 +104,10 @@ class SGSEngine:
             durata_j = self._durations[j]
 
             while True:
+
+                if t + durata_j > horizon:
+                    raise RuntimeError(f"Attività {j} non schedulabile entro l'orizzonte")
+
                 feasible = True
 
                 for tau in range(t, t + durata_j):
@@ -177,7 +181,7 @@ class SGSEngine:
                 if j not in scheduled
                 and j not in ongoing
                 and j != last
-                and all(p in scheduled for p in preds_map[j])
+                and all(p in scheduled and p not in ongoing for p in preds_map[j])
             ]
 
             # Ordino le attività eleggibili per priorità

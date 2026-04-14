@@ -1,5 +1,5 @@
 """
-sgs_engine_rcpsp.py
+sgs_engine_rcpsp_max.py
 -------------
 Implementazione del motore che schedula le attività in modo da rispettare i vincoli
 di precedenza e di risorsa del problema RCPSP/Max.
@@ -32,7 +32,7 @@ class SGSEngine:
             horizon: int,
             release_dates: list[int | None] | None,
             due_dates: list[int | None] | None,
-            validate_input: True,
+            validate_input: bool = True,
             ):
         self._n = n
         self._activities = list(range(n))
@@ -74,6 +74,7 @@ class SGSEngine:
             eligible = [
                 j for j in priority_list
                 if j not in scheduled
+                and j != self._n - 1
                 and all(i in scheduled for (i, _, _) in preds_map[j])
             ]
 
@@ -95,6 +96,7 @@ class SGSEngine:
                 continue
             
             # Calcolo l'earliest start con il time-lag
+            es_j = 0
             for (i, min_lag, _) in preds_map[j]:
                 es_j = max(es_j, start_times[i] + min_lag)
 
@@ -122,8 +124,7 @@ class SGSEngine:
                             break
 
                 if not valid:
-                    t += 1
-                    continue
+                    raise RuntimeError(f"Infeasible: attività {j} non schedulabile per violazione max_lag")
 
                 # Controllo del consumo risorse
                 feasible = True
@@ -198,7 +199,9 @@ class SGSEngine:
                 if j not in scheduled
                 and j not in ongoing
                 and j != last
-                and all(i in start_times for (i, _, _) in preds_map[j])
+                and all(i in start_times and start_times[i] + min_lag <= t
+                        for (i, min_lag, _) in preds_map[j]
+                )
             ]
 
             # Ordino le attività eleggibili per priorità
