@@ -230,3 +230,186 @@ class SGSEngine:
             )
 
         return sorted(schedule, key=lambda x: x["start"])
+
+def test_modulo():
+    from core.heuristics.priority_rules import wrapper_rule
+    from tests.instance_rcpsp_and_rcpsp_max import Instance
+    import random
+
+    # Input 
+    n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_instance()
+
+    priority_list = wrapper_rule("spt", n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+    
+    sgs = SGSEngine(n, durations, precedences_rcpsp, resources, consumption, horizon, validate_input=True)
+    
+    print("REGOLA SPT (SHORTEST PROCESS TIME)")
+    print("="*60)
+    print("Testing sgs_engine seriale:")
+    print(sgs.serial(priority_list))
+    print("-"*60)
+    print("Testing sgs_engine parallelo:")
+    print(sgs.parallel(priority_list))
+    print("="*60)
+    print("\n")
+
+    priority_list = wrapper_rule("mts", n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+    
+    print("REGOLA MTS (MOST TOTAL SUCCESSORS)")
+    print("="*60)
+    print("Testing sgs_engine seriale:")
+    print(sgs.serial(priority_list))
+    print("-"*60)
+    print("Testing sgs_engine parallelo:")
+    print(sgs.parallel(priority_list))
+    print("="*60)
+    print("\n")
+
+    priority_list = wrapper_rule("grd", n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+    
+    print("REGOLA GRD (GREATEST RESOURCES DEMAND)")
+    print("="*60)
+    print("Testing sgs_engine seriale:")
+    print(sgs.serial(priority_list))
+    print("-"*60)
+    print("Testing sgs_engine parallelo:")
+    print(sgs.parallel(priority_list))
+    print("="*60)
+    print("\n")
+
+    priority_list = wrapper_rule("lft_rcpsp", n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+    
+    print("REGOLA LFT (LAST FINISHING TIME)")
+    print("="*60)
+    print("Testing sgs_engine seriale:")
+    print(sgs.serial(priority_list))
+    print("-"*60)
+    print("Testing sgs_engine parallelo:")
+    print(sgs.parallel(priority_list))
+    print("="*60)
+    print("\n")
+
+    priority_list = wrapper_rule("lst_rcpsp", n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+    
+    print("REGOLA LST (LAST STARTING TIME)")
+    print("="*60)
+    print("Testing sgs_engine seriale:")
+    print(sgs.serial(priority_list))
+    print("-"*60)
+    print("Testing sgs_engine parallelo:")
+    print(sgs.parallel(priority_list))
+    print("="*60)
+    print("\n")
+
+    priority_list = wrapper_rule("mslk_rcpsp", n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+    
+    print("REGOLA MSLK (MINIMUM SLACK TIME)")
+    print("="*60)
+    print("Testing sgs_engine seriale:")
+    print(sgs.serial(priority_list))
+    print("-"*60)
+    print("Testing sgs_engine parallelo:")
+    print(sgs.parallel(priority_list))
+    print("="*60)
+    print("\n")
+
+    N = 100
+
+    print("="*60)
+    print("\n")
+    print("="*60)
+    print("Esecuzione multitest seriale e parallelo per ciascuna regola.")
+    print(f"Ogni funzione verra eseguita {N} volte per regola.")
+
+    list_regole = ['spt', 'mts', 'grd', 'lft_rcpsp', 'lst_rcpsp', 'mslk_rcpsp']
+
+    for regola in list_regole:
+        print(f"\n TEST REGOLA {regola.upper()}")
+        
+        priority_list = wrapper_rule(regola, n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
+                                horizon=horizon)
+
+        print("-"*60)
+        print("Test seriale:")
+        makespans, best_sol = test_multistart_stats_serial(sgs, priority_list, N)
+        print(f"Lista di tutti i makespans trovati: {makespans}")
+        print("-"*60)
+
+        print("-"*60)
+        print("Test parallelo:")
+        makespans, best_sol = test_multistart_stats_parallel(sgs, priority_list, N)
+        print(f"Lista di tutti i makespans trovati: {makespans}")
+        print("-"*60)
+
+def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
+
+    import random
+
+    makespans = []
+    solutions = {}
+    failures = 0
+
+    for _ in range(n_runs):
+
+        pl = priority_list.copy()
+        random.shuffle(pl)
+
+        try:
+            sol = sgs.parallel(pl)
+            makespan = max(x["end"] for x in sol)
+            makespans.append(makespan)
+        except RuntimeError:
+            failures += 1
+
+    if makespans:
+        print(f"\nRuns: {n_runs}")
+        print(f"Success: {len(makespans)}")
+        print(f"Failures: {failures}")
+        print(f"Best: {min(makespans)}")
+        print(f"Avg: {sum(makespans)/len(makespans):.2f}")
+        print(f"Worst: {max(makespans)}")
+    else:
+        print("Nessuna soluzione trovata")
+
+    return makespans, solutions.get(min(makespans))
+
+def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
+
+    import random
+
+    makespans = []
+    solutions = {}
+    failures = 0
+
+    for _ in range(n_runs):
+
+        pl = priority_list.copy()
+        random.shuffle(pl)
+
+        try:
+            sol = sgs.serial(pl)
+            makespan = max(x["end"] for x in sol)
+            makespans.append(makespan)
+        except RuntimeError:
+            failures += 1
+
+    if makespans:
+        print(f"\nRuns: {n_runs}")
+        print(f"Success: {len(makespans)}")
+        print(f"Failures: {failures}")
+        print(f"Best: {min(makespans)}")
+        print(f"Avg: {sum(makespans)/len(makespans):.2f}")
+        print(f"Worst: {max(makespans)}")
+    else:
+        print("Nessuna soluzione trovata")
+
+    return makespans, solutions.get(min(makespans))
+
+if __name__ == "__main__":
+    test_modulo()
