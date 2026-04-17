@@ -50,7 +50,7 @@ class Instance:
         # Conversione in RCPSP/Max
         precedences_rcpsp_max = []
         for (i, j) in precedences_rcpsp:
-            if random.random() > 0.7:
+            if random.random() > 0.8:
                 max_lag = durations[i] + int(random.random() * durations[i] // 2)
             else:
                 max_lag = None

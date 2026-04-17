@@ -33,7 +33,6 @@ class SGSEngine:
             release_dates: list[int | None] | None,
             due_dates: list[int | None] | None,
             validate_input: bool = True,
-            allow_infeasible: bool = True
             ):
         self._n = n
         self._activities = list(range(n))
@@ -44,7 +43,6 @@ class SGSEngine:
         self._horizon = horizon
         self._release_dates = release_dates
         self._due_dates = due_dates
-        self._allow_infeasible = allow_infeasible
         self._penalty_ser = 0
         self._penalty_par = 0
 
@@ -56,7 +54,7 @@ class SGSEngine:
         if validate_input:
             validate_inputs(self)
 
-    def serial(self, priority_list):
+    def serial(self, priority_list, time_weight, resource_weight, priority_weight, tardiness_weight, limit_lookahead):
         """
         SGS seriale per RCPSP/Max.
  
@@ -71,9 +69,13 @@ class SGSEngine:
             a partire da quell'istante. Questo è il classico meccanismo
             backtrack-free del SGS seriale.
         
-        Il metodo assegna una penalità nei casi in cui:
-            - Un'attività è difficilmente schedulabile
-            - L'attività viene schedulata sforando il LS
+        Nel caso in cui il metodo non effettua una schedulazione rispettando
+        i vincoli di tempo e risorse, viene calcolata una funzione di costo
+        e effettuata la schedulazione in base ad essa, cercando appunto di 
+        minimizzarla. Di conseguenza, la soluzione in questo caso potrebbe
+        non rispettare i vincoli di risorse, di tempo o la lista di priorità.
+        L'unica cosa che può influenzare la funzione di costo sono i pesi
+        assegnati ad ogni vincolo.
         """
         self._penalty_ser = 0
         # Aggiungo le dummy activities nella priority_list
@@ -145,23 +147,14 @@ class SGSEngine:
             # Filtra candidati con finestra valida (ES <= LS)
             valid = [(j, es, ls) for (j, es, ls) in candidates if es <= ls]
  
-            if not valid:
-                if self._allow_infeasible:
-                    # fallback: uso comunque i candidati
-                    valid = candidates
+            # if not valid:
+                # raise RuntimeError(
+                    # f"Finestre temporali impossibili per tutti i candidati: "
+                    # f"{[(j, int(es), int(ls)) for j,es,ls in candidates]}. "
+                    # f"I vincoli max_lag/due_date sono insoddisfacibili con questa priority list."
+                # )
 
-                    # penalità per violazione finestre
-                    for (j, es, ls) in candidates:
-                        if es > ls:
-                            self._penalty_ser += (es - ls)
-                else:
-                    raise RuntimeError(
-                        f"Finestre temporali impossibili per tutti i candidati: "
-                        f"{[(j, int(es), int(ls)) for j,es,ls in candidates]}. "
-                        f"I vincoli max_lag/due_date sono insoddisfacibili con questa priority list."
-                    )
-
-            scheduled_flag = False
+            scheduled_flag = False 
 
             for (j, es_j, ls_j) in valid:
 
@@ -180,31 +173,22 @@ class SGSEngine:
                 limit = ls_j if ls_j != float("inf") else self._horizon
 
                 # Cerca il primo t ∈ [es_j, ls_j] con risorse disponibili
-                while t <= limit or self._allow_infeasible:
+                while t <= limit:
 
                     # controllo risorse
                     feasible = True
-                    overuse_for_this_t = 0
                     for tau in range(t, t + durata_j):
                         if tau > self._horizon:
                             feasible = False
                             break
                         for r in range(len(self._resources)):
-                            overuse = consumption_profile[r][tau] + self._consumption[j][r] - self._resources[r]
-                            if overuse > 0:
-                                overuse_for_this_t += overuse
-                                if not self._allow_infeasible:
-                                    feasible = False
-                                    break
+                            if consumption_profile[r][tau] + self._consumption[j][r] > self._resources[r]:
+                                feasible = False
+                                break
                         if not feasible:
                             break
 
                     if feasible:
-                        # penalità se sforo Latest Start
-                        if t > ls_j:
-                            self._penalty_ser += (t - ls_j)
-
-                        self._penalty_ser += overuse_for_this_t
 
                         start_times[j] = t
                         finish_times[j] = t + durata_j
@@ -217,13 +201,6 @@ class SGSEngine:
                         scheduled_flag = True
                         break
 
-                    # accumula penalità overflow risorse
-                    for tau in range(t, t + durata_j):
-                        for r in range(len(self._resources)):
-                            over = consumption_profile[r][tau] - self._resources[r]
-                            if over > 0:
-                                self._penalty_ser += over
-
                     t += 1
 
                 if scheduled_flag:
@@ -231,91 +208,40 @@ class SGSEngine:
 
             # --- Time jump se nessuno schedulato ---
             if not scheduled_flag:
-                # Raccogli tutti i finish time delle attività già schedulate
-                # che cadono dopo il minimo ES tra i candidati validi
-                min_es = min(int(es) for (_, es, _) in valid)
-                future_events = sorted(set(
-                    ft for ft in finish_times.values() if ft > min_es
-                ))
- 
-                if not future_events:
-                    raise RuntimeError(
-                        f"Stallo irrecuperabile: risorse sature e nessun evento futuro. "
-                        f"Candidati validi: {[(j, int(es), int(ls)) for j,es,ls in valid]}"
-                    )
- 
-                for next_t in future_events:
-                    for (j, es_j, ls_j) in valid:
-                        if j == 0:
-                            continue
-                        ls_j_int = int(ls_j) if ls_j != float("inf") else self._horizon
-                        t = max(next_t, int(es_j))
-                        durata_j = self._durations[j]
-                        while t <= ls_j_int:
-                            feasible = True
-                            overuse_total = 0
-                            for tau in range(t, t + durata_j):
-                                if tau > self._horizon:
-                                    feasible = False
-                                    break
-                                for r in range(len(self._resources)):
-                                    over = consumption_profile[r][tau] + self._consumption[j][r] - self._resources[r]
-                                    if over > 0:
-                                        overuse_total += over
-                                        if not self._allow_infeasible:
-                                            feasible = False
-                                            break
-                                if not feasible:
-                                    break
+                # Nel caso in cui nessuna attività venga schedulata, schedulo forzatamente
+                # quella con il costo minore calcolato nella funzione _compute_cost()
 
-                            if feasible:
-                                if t > ls_j:
-                                    self._penalty_ser += (t - ls_j)
+                best_cost = float("inf")
+                best_choice = None
 
-                                self._penalty_ser += overuse_total
-                                start_times[j] = t
-                                finish_times[j] = t + durata_j
+                if len(candidates) == 0:
+                    raise RuntimeError("Fallback impossibile: nessun candidato disponibile")
 
-                                for tau in range(t, t + durata_j):
-                                    for r in range(len(self._resources)):
-                                        consumption_profile[r][tau] += self._consumption[j][r]
-
-                                scheduled.add(j)
-                                scheduled_flag = True
-                                break
-                            
-                            if overuse_total > 0:
-                                self._penalty_ser += overuse_total
-                            t += 1
-
-                        if scheduled_flag:
-                            break
-
-                    if scheduled_flag:
-                        break
- 
-                if not scheduled_flag:
-                    if self._allow_infeasible:
-                        # forza scheduling del più urgente
-                        j, es_j, ls_j = min(valid, key=lambda x: x[2])
-
-                        t = int(es_j)
-
-                        start_times[j] = t
-                        finish_times[j] = t + self._durations[j]
-
-                        for tau in range(t, t + self._durations[j]):
-                            for r in range(len(self._resources)):
-                                consumption_profile[r][tau] += self._consumption[j][r]
-
-                        scheduled.add(j)
-                        self._penalty_ser += self._horizon * 2  # penalità forte
-                        continue
+                for (j, es_j, ls_j) in candidates:
+                    if es_j > ls_j:
+                        start = max(t, ls_j)
+                        end = start + limit_lookahead
                     else:
-                        raise RuntimeError(
-                            f"Stallo irrecuperabile: impossibile schedulare dopo time jump. "
-                            f"Candidati validi: {[(j, int(es), int(ls)) for j,es,ls in valid]}"
-                        )
+                        start = max(t, es_j)
+                        end = start + limit_lookahead
+                    for t_cand in range(start, end):
+                        cost = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, consumption_profile, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_choice = (j, t_cand)
+                
+                j_fb = best_choice[0]
+                t = best_choice[1]
+                start_times[j_fb] = t
+                finish_times[j_fb] = t + self._durations[j_fb]
+
+                for tau in range(t, t + self._durations[j_fb]):
+                    for r in range(len(self._resources)):
+                        consumption_profile[r][tau] += self._consumption[j_fb][r]
+
+                scheduled.add(j_fb)
+                self._penalty_ser += best_cost
+                continue
                 
         # Attività dummy finale
         start_times[last] = max(start_times[i] + self._durations[i] for i in start_times)
@@ -329,7 +255,7 @@ class SGSEngine:
 
         return sorted(schedule, key=lambda x: x["start"])
 
-    def parallel(self, priority_list):
+    def parallel(self, priority_list, time_weight, resource_weight, priority_weight, tardiness_weight, limit_lookahead):
         """
         SGS parallelo per RCPSP/Max.
  
@@ -344,9 +270,13 @@ class SGSEngine:
         e non un bug — il parallelo è utile per la sua velocità e
         robustezza, non per la qualità della soluzione.
 
-        Il metodo assegna una penalità nei casi in cui:
-            - Un'attività è difficilmente schedulabile
-            - L'attività viene schedulata sforando il LS
+        Nel caso in cui il metodo non effettua una schedulazione rispettando
+        i vincoli di tempo e risorse, viene calcolata una funzione di costo
+        e effettuata la schedulazione in base ad essa, cercando appunto di 
+        minimizzarla. Di conseguenza, la soluzione in questo caso potrebbe
+        non rispettare i vincoli di risorse, di tempo o la lista di priorità.
+        L'unica cosa che può influenzare la funzione di costo sono i pesi
+        assegnati ad ogni vincolo.
         """
         self._penalty_par = 0
         # Aggiungo le dummy activities nella priority_list
@@ -386,6 +316,7 @@ class SGSEngine:
             #    (inclusi quelli con predecessori non ancora schedulati, per determinare
             #    next_times in modo da evitare deadlock)
             eligible_with_windows: list[tuple[int, int, float]] = []
+            candidates_global = []
             next_times: list[int] = []
  
             for j in priority_list:
@@ -419,20 +350,17 @@ class SGSEngine:
  
                 # Finestra infeasible: salto
                 if es_j > ls_j:
-                    if self._allow_infeasible:
-                        self._penalty_par += (es_j - ls_j)
- 
-                # Solo i job la cui finestra include t sono candidati ora
-                if t < es_j or t > ls_j:
-                    if not self._allow_infeasible:
-                        continue
+                    candidates_global.append((j, es_j, ls_j))
+                    continue
  
                 eligible_with_windows.append((j, es_j, ls_j))
+                candidates_global.append((j, es_j, ls_j))
  
             # 3. Ordina candidati: 1° priority_list, 2° LS crescente (urgenza)
             eligible_with_windows.sort(
                 key=lambda x: (priority_index[x[0]], x[2])
             )
+            candidates_global.sort(key=lambda x: (priority_index[x[0]], x[2]))
  
             # 4. Tenta scheduling dei candidati
             scheduled_this_step = False
@@ -440,15 +368,11 @@ class SGSEngine:
             for (j, es_j, ls_j) in eligible_with_windows:
                 # Controllo risorse
                 feasible = True
-                overuse_total = 0
 
                 for r in range(len(self._resources)):
-                    over = current_usage[r] + self._consumption[j][r] - self._resources[r]
-                    if over > 0:
-                        overuse_total += over
-                        if not self._allow_infeasible:
-                            feasible = False
-                            break
+                    if current_usage[r] + self._consumption[j][r] > self._resources[r]:
+                        feasible = False
+                        break
  
                 if feasible:
                     start_times[j] = t
@@ -458,75 +382,70 @@ class SGSEngine:
                     scheduled.add(j)
                     ongoing.add(j)
                     scheduled_this_step = True
+                
+            # 5. Fallback in caso di mancata schedulazione o avanzamento nel tempo
+            if not scheduled_this_step:
+                best_cost = float("inf")
+                best_choice = None
 
-                if overuse_total > 0:
-                    self._penalty_par += (overuse_total * self._durations[j])
+                if len(candidates_global) == 0:
+                    raise("Fallback impossibile: nessuna attività eleggibile disponibile")
 
-                # Penalty temporale se t > ls_j
-                if t > ls_j:
-                    self._penalty_par += (t - ls_j)
-            
-            # 5. Avanzamento del tempo
-            if not ongoing and not scheduled_this_step:
-                # Niente in esecuzione e niente schedulato: possibile deadlock
-                if next_times:
-                    next_t = min(next_times)
-                    if next_t <= t:
-                        if self._allow_infeasible and eligible_with_windows:
-                            j = min(eligible_with_windows, key=lambda x: priority_index[x[0]])[0]
+                for (j, es_j, ls_j) in candidates_global:
+                    if j in scheduled or j in ongoing:
+                        continue
 
-                            start_times[j] = t
-                            finish_times[j] = t + self._durations[j]
-
-                            for r in range(len(self._resources)):
-                                current_usage[r] += self._consumption[j][r]
-
-                            ongoing.add(j)
-                            scheduled.add(j)
-
-                            self._penalty_par += 500
-                            continue
-                        else:
-                            raise RuntimeError(
-                                f"Deadlock al tempo {t}: next_times={next_times}, "
-                                f"scheduled={sorted(scheduled)}"
-                            )
-                    t = next_t
-                else:
-                    if self._allow_infeasible:
-                        remaining = [j for j in priority_list if j not in scheduled and j != last]
-                        if remaining:
-                            j = remaining[0]
-
-                            start_times[j] = t
-                            finish_times[j] = t + self._durations[j]
-
-                            ongoing.add(j)
-                            scheduled.add(j)
-
-                            self._penalty_par += 500
-                            continue
+                    if es_j > ls_j:
+                        start = max(t, ls_j)
+                        end = start + limit_lookahead
                     else:
-                        raise RuntimeError(
-                            f"Deadlock irrecuperabile al tempo {t}: "
-                            f"nessuna attività eleggibile e nessun job in esecuzione."
-                        )
-            else:
+                        start = max(t, es_j)
+                        end = start + limit_lookahead
+                    for t_cand in range(start, end):
+                        cost = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, current_usage, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_choice = (j, t_cand)
+
+                if best_choice is None:
+                    if ongoing:
+                        t = min(finish_times[jj] for jj in ongoing)
+                    else:
+                        t += 1
+                    continue
+
+                j_fb = best_choice[0]
+                t_fb = best_choice[1]
+                if t_fb > t:
+                    t = t_fb
+
+                start_times[j_fb] = t
+                finish_times[j_fb] = t + self._durations[j_fb]
+                for r in range(len(self._resources)):
+                    current_usage[r] += self._consumption[j_fb][r]
+                scheduled.add(j_fb)
+                ongoing.add(j_fb)
+                scheduled_this_step = True
+                self._penalty_par += best_cost
+
+            if scheduled_this_step:    
                 # Avanza al prossimo termine di un'attività in corso,
                 # oppure all'ES più vicino se la finestra non è ancora raggiunta
                 candidates_t: list[int] = []
                 if ongoing:
-                    candidates_t.append(min(finish_times[j] for j in ongoing))
+                    candidates_t.append(min(finish_times[jj] for jj in ongoing))
                 if next_times:
                     future_next = [nt for nt in next_times if nt > t]
                     if future_next:
                         candidates_t.append(min(future_next))
- 
+
                 if candidates_t:
                     t = min(candidates_t)
                 else:
                     # Non ci sono più eventi futuri: il loop terminerà al prossimo giro
                     t += 1
+            else:
+                t += 1
 
         # Ultimo nodo
         start_times[last] = max(finish_times.values())
@@ -539,6 +458,73 @@ class SGSEngine:
             )
 
         return sorted(schedule, key=lambda x: x["start"])
+    
+    def _compute_cost(self, j, t, es_j, ls_j, priority_index, usage_profile, time_weight, resource_weight, priority_weight, tardiness_weight):
+        """
+        Metodo per calcolare la funzione di costo. 
+        Viene chiamato ogni volta che un'attività non
+        può essere schedulata in un determinato periodo.
+
+        Per influenzare il comportamento dei metodi serial()
+        e parallel(), è necessario modificare i pesi assegnati
+        ad ogni vincolo, in particolare:
+            - time_weight -> peso associato alla violazione della
+              finestra temporale (es_j, ls_j)
+            - resource_weight -> peso associato all'overuse delle 
+              risorse
+            - priority_weight -> peso associato alla lista di priorità
+              generata dalle regola scelta
+            - tardiness_weight -> peso associato al ritardo del job in
+              questione, rispetto alla data di scadenza, se esiste  
+
+        Nota: i costi sono normalizzati, perciò i pesi che si possono assegnare
+        rientrano in una scala da 0 -> 5, dove 0 significa nessuna priorità,
+        5 massima priorità per quel fattore. 
+        """
+        cost = 0
+
+        durata = self._durations[j]
+
+        # --- 1. Violazione finestra ---
+        if es_j <= ls_j:
+            if t < es_j:
+                cost += (es_j - t) * time_weight
+            if t > ls_j:
+                cost += (t - ls_j) * time_weight
+        else:
+            cost += (es_j - ls_j) * (2*time_weight) # Assegno un peso molto più grande nel caso in cui es_j > ls_j, 
+                                                    # perchè significa che il job è infeasible e non ha lo stesso peso di 
+                                                    # spostare il job nella finestra feasible
+
+        # --- 2. Overuse risorse ---
+        overuse = 0
+        for tau in range(t, t + durata):
+            if tau > self._horizon:
+                overuse += 1000
+                continue
+
+            for r in range(len(self._resources)):
+                if usage_profile.ndim == 2:
+                    over = usage_profile[r][tau] + self._consumption[j][r] - self._resources[r]
+                    if over > 0:
+                        overuse += over
+                else:
+                    over = usage_profile[r] + self._consumption[j][r] - self._resources[r]
+                    if over > 0:
+                        overuse += over
+
+        cost += (overuse /(durata * len(self._resources))) * resource_weight
+
+        # --- 3. Priorità (soft) ---
+        cost += priority_index[j] * priority_weight
+
+        # --- 4. Ritardo globale ---
+        if self._due_dates and self._due_dates[j] is not None:
+            finish = t + durata
+            tardiness = max(0, finish - self._due_dates[j])
+            cost += tardiness * tardiness_weight
+
+        return cost
     
     @property
     def penalty_ser(self):
@@ -565,13 +551,13 @@ def test_modulo():
     print("="*60)
     print("Testing sgs_engine seriale:")
     try:
-        print(sgs.serial(priority_list))
+        print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
-        print(e)
+        raise e
     print("-"*60)
     print("Testing sgs_engine parallelo:")
     try:
-        print(sgs.parallel(priority_list))
+        print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("="*60)
@@ -584,13 +570,13 @@ def test_modulo():
     print("="*60)
     print("Testing sgs_engine seriale:")
     try:
-        print(sgs.serial(priority_list))
+        print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
     print("Testing sgs_engine parallelo:")
     try:
-        print(sgs.parallel(priority_list))
+        print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("\n")
@@ -602,13 +588,13 @@ def test_modulo():
     print("="*60)
     print("Testing sgs_engine seriale:")
     try:
-        print(sgs.serial(priority_list))
+        print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
     print("Testing sgs_engine parallelo:")
     try:
-        print(sgs.parallel(priority_list))
+        print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("="*60)
@@ -621,12 +607,12 @@ def test_modulo():
     print("="*60)
     print("Testing sgs_engine seriale:")
     try:
-        print(sgs.serial(priority_list))
+        print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
     print("Testing sgs_engine parallelo:")
-    print(sgs.parallel(priority_list))
+    print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     print("="*60)
     print("\n")
 
@@ -637,12 +623,12 @@ def test_modulo():
     print("="*60)
     print("Testing sgs_engine seriale:")
     try:
-        print(sgs.serial(priority_list))
+        print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
     print("Testing sgs_engine parallelo:")
-    print(sgs.parallel(priority_list))
+    print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     print("="*60)
     print("\n")
 
@@ -653,13 +639,13 @@ def test_modulo():
     print("="*60)
     print("Testing sgs_engine seriale:")
     try:
-        print(sgs.serial(priority_list))
+        print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
     print("Testing sgs_engine parallelo:")
     try:
-        print(sgs.parallel(priority_list))
+        print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("="*60)
@@ -685,13 +671,13 @@ def test_modulo():
                                 horizon=horizon)
         print("-"*60)
         print("Test seriale:")
-        makespans, best_sol = test_multistart_stats_serial(sgs, priority_list, N)
+        makespans, best_sol, penalties = test_multistart_stats_serial(sgs, priority_list, N)
         print(f"Lista di tutti i makespans trovati: {makespans}")
         print("-"*60)
 
         print("-"*60)
         print("Test parallelo:")
-        makespans, best_sol = test_multistart_stats_parallel(sgs, priority_list, N)
+        makespans, best_sol, penalties = test_multistart_stats_parallel(sgs, priority_list, N)
         print(f"Lista di tutti i makespans trovati: {makespans}")
         print("-"*60)
 
@@ -710,11 +696,11 @@ def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
         random.shuffle(pl)
 
         try:
-            sol = sgs.parallel(pl)
+            sol = sgs.parallel(pl, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5)
             makespan = max(x["end"] for x in sol)
             makespans.append(makespan)
             solutions[makespan] = sol
-            penalties[makespan] = sgs.penalty_par()
+            penalties[makespan] = sgs.penalty_par
         except RuntimeError:
             failures += 1
 
@@ -745,10 +731,10 @@ def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
         random.shuffle(pl)
 
         try:
-            sol = sgs.serial(pl)
+            sol = sgs.serial(pl, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5)
             makespan = max(x["end"] for x in sol)
             makespans.append(makespan)
-            penalties[makespan] = sgs.penalty_ser()
+            penalties[makespan] = sgs.penalty_ser
         except RuntimeError:
             failures += 1
 

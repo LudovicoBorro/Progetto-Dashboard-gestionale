@@ -329,6 +329,8 @@ def test_modulo():
 
     list_regole = ['spt', 'mts', 'grd', 'lft_rcpsp', 'lst_rcpsp', 'mslk_rcpsp']
 
+    best_solutions = {}
+
     for regola in list_regole:
         print(f"\n TEST REGOLA {regola.upper()}")
         
@@ -340,19 +342,23 @@ def test_modulo():
         makespans, best_sol = test_multistart_stats_serial(sgs, priority_list, N)
         print(f"Lista di tutti i makespans trovati: {makespans}")
         print("-"*60)
+        best_solutions[regola + "_serial"] = best_sol
 
         print("-"*60)
         print("Test parallelo:")
         makespans, best_sol = test_multistart_stats_parallel(sgs, priority_list, N)
         print(f"Lista di tutti i makespans trovati: {makespans}")
         print("-"*60)
+        best_solutions[regola + "_parallel"] = best_sol
 
 def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
 
     import random
 
     makespans = []
-    solutions = {}
+    best_solution = None
+    best_makespan = None
+    best = {}
     failures = 0
 
     for _ in range(n_runs):
@@ -364,6 +370,9 @@ def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
             sol = sgs.parallel(pl)
             makespan = max(x["end"] for x in sol)
             makespans.append(makespan)
+            if best_makespan is None or makespan < best_makespan:
+                best_makespan = makespan
+                best_solution = sol
         except RuntimeError:
             failures += 1
 
@@ -377,14 +386,18 @@ def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
     else:
         print("Nessuna soluzione trovata")
 
-    return makespans, solutions.get(min(makespans))
+    best[best_makespan] = best_solution
+
+    return makespans, best
 
 def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
 
     import random
 
     makespans = []
-    solutions = {}
+    best_solution = None
+    best_makespan = None
+    best = {}
     failures = 0
 
     for _ in range(n_runs):
@@ -396,6 +409,9 @@ def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
             sol = sgs.serial(pl)
             makespan = max(x["end"] for x in sol)
             makespans.append(makespan)
+            if best_makespan is None or makespan < best_makespan:
+                best_makespan = makespan
+                best_solution = sol
         except RuntimeError:
             failures += 1
 
@@ -409,7 +425,9 @@ def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
     else:
         print("Nessuna soluzione trovata")
 
-    return makespans, solutions.get(min(makespans))
+    best[best_makespan] = best_solution
+
+    return makespans, best
 
 if __name__ == "__main__":
     test_modulo()
