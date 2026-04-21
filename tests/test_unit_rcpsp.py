@@ -41,7 +41,7 @@ class Test:
                             precedences=precedences,
                             resources=resources,
                             consumption=consumption,
-                            deadline=deadline,
+                            horizon=deadline,
                             validate_input=True
                             )
         
@@ -88,7 +88,7 @@ class Test:
         prec      = inst._precedences
         resources = inst._resources
         consump   = inst._consumption
-        deadline  = inst._deadline
+        deadline  = inst._horizon
 
         errors = []
 

@@ -85,18 +85,18 @@ def validate_inputs(self) -> None:
             "L'attività fittizia finale (n-1) non deve consumare risorse."
         )
 
-    # ── Deadline ──────────────────────────────────────────────────────────
-    if self._deadline <= 0:
+    # ── Horizon ──────────────────────────────────────────────────────────
+    if self._horizon <= 0:
         raise ValueError(
-            f"deadline = {self._deadline}: deve essere strettamente positiva."
+            f"horizon = {self._horizon}: deve essere strettamente positiva."
         )
 
     # Lower bound banale: anche nel caso in cui tutte le attività si svolgessero 
     # in parallelo, il lower_bound è almeno uguale al massimo delle durate
     lower_bound = max(self._durations)
-    if self._deadline < lower_bound:
+    if self._horizon < lower_bound:
         raise ValueError(
-            f"deadline = {self._deadline} è inferiore alla durata massima "
+            f"horizon = {self._horizon} è inferiore alla durata massima "
             f"({lower_bound}): il problema è strutturalmente inammissibile."
         )
 

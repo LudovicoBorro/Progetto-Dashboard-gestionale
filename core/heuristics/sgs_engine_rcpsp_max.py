@@ -1,6 +1,6 @@
 """
 sgs_engine_rcpsp_max.py
--------------
+------------------------
 Implementazione del motore che schedula le attività in modo da rispettare i vincoli
 di precedenza e di risorsa del problema RCPSP/Max.
 
@@ -225,7 +225,7 @@ class SGSEngine:
                         start = max(t, es_j)
                         end = start + limit_lookahead
                     for t_cand in range(start, end):
-                        cost = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, consumption_profile, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
+                        cost, _ = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, consumption_profile, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
                         if cost < best_cost:
                             best_cost = cost
                             best_choice = (j, t_cand)
@@ -402,7 +402,7 @@ class SGSEngine:
                         start = max(t, es_j)
                         end = start + limit_lookahead
                     for t_cand in range(start, end):
-                        cost = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, current_usage, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
+                        cost, _ = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, current_usage, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
                         if cost < best_cost:
                             best_cost = cost
                             best_choice = (j, t_cand)
@@ -482,19 +482,23 @@ class SGSEngine:
         5 massima priorità per quel fattore. 
         """
         cost = 0
+        time_penalty = 0
+        overuse_penalty = 0
+        tardiness_penalty = 0
 
         durata = self._durations[j]
 
         # --- 1. Violazione finestra ---
         if es_j <= ls_j:
             if t < es_j:
-                cost += (es_j - t) * time_weight
+                time_penalty = (es_j - t) * time_weight
             if t > ls_j:
-                cost += (t - ls_j) * time_weight
+                time_penalty = (t - ls_j) * time_weight
         else:
-            cost += (es_j - ls_j) * (2*time_weight) # Assegno un peso molto più grande nel caso in cui es_j > ls_j, 
-                                                    # perchè significa che il job è infeasible e non ha lo stesso peso di 
-                                                    # spostare il job nella finestra feasible
+            time_penalty = (es_j - ls_j) * (2*time_weight)  # Assegno un peso molto più grande nel caso in cui es_j > ls_j, 
+                                                            # perchè significa che il job è infeasible e non ha lo stesso peso di 
+                                                            # spostare il job nella finestra feasible
+        cost += time_penalty
 
         # --- 2. Overuse risorse ---
         overuse = 0
@@ -513,18 +517,23 @@ class SGSEngine:
                     if over > 0:
                         overuse += over
 
-        cost += (overuse /(durata * len(self._resources))) * resource_weight
+        overuse_penalty = (overuse /(durata * len(self._resources))) * resource_weight
+
+        cost += overuse_penalty
 
         # --- 3. Priorità (soft) ---
-        cost += priority_index[j] * priority_weight
+        priority_penalty = priority_index[j] * priority_weight
+        cost += priority_penalty
 
         # --- 4. Ritardo globale ---
         if self._due_dates and self._due_dates[j] is not None:
             finish = t + durata
             tardiness = max(0, finish - self._due_dates[j])
-            cost += tardiness * tardiness_weight
+            tardiness_penalty = tardiness * tardiness_weight
+            cost += tardiness_penalty
 
-        return cost
+        penalties = {"time_penalty": time_penalty, "overuse_penalty": overuse_penalty, "priority_penalty": priority_penalty, "tardiness_penalty": tardiness_penalty}
+        return cost, penalties
     
     @property
     def penalty_ser(self):
@@ -537,6 +546,7 @@ class SGSEngine:
 def test_modulo():
     from core.heuristics.priority_rules import wrapper_rule
     from tests.instance_rcpsp_and_rcpsp_max import Instance
+    from core.heuristics.multistart_rcpsp_max import get_best_solution_overall
     import random
 
     # Input 
@@ -651,7 +661,7 @@ def test_modulo():
     print("="*60)
     print("\n")
 
-    N = 100
+    N = 1000
 
     print("="*60)
     print("\n")
@@ -659,96 +669,29 @@ def test_modulo():
     print("Esecuzione multitest seriale e parallelo per ciascuna regola.")
     print(f"Ogni funzione verra eseguita {N} volte per regola.")
 
-    list_regole = ['spt', 'mts', 'grd', 'lft_rcpsp_max', 'lst_rcpsp_max', 'mslk_rcpsp_max']
+    risultati, best_solution_overall, specs = get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, N)
 
-    for regola in list_regole:
-        print(f"\n TEST REGOLA {regola.upper()}")
-        if regola == 'mts':
-            priority_list = wrapper_rule(regola, n=n, durations=durations, precedences_rcpsp=precedences_rcpsp, resources=resources, consumption=consumption,
-                                horizon=horizon)
-        else:
-            priority_list = wrapper_rule(regola, n=n, durations=durations, precedences_rcpsp_max=precedences_rcpsp_max, resources=resources, consumption=consumption,
-                                horizon=horizon)
-        print("-"*60)
-        print("Test seriale:")
-        makespans, best_sol, penalties = test_multistart_stats_serial(sgs, priority_list, N)
-        print(f"Lista di tutti i makespans trovati: {makespans}")
-        print("-"*60)
+    for k, r in risultati.items():
+        print(f"\n TEST REGOLA {k.upper()}")
 
         print("-"*60)
-        print("Test parallelo:")
-        makespans, best_sol, penalties = test_multistart_stats_parallel(sgs, priority_list, N)
-        print(f"Lista di tutti i makespans trovati: {makespans}")
+        print(f"Runs: {r.get("runs")}")
+        print(f"Success: {r.get("success")}")
+        print(f"Failures: {r.get("failures")}")
+        print(f"Best: {r.get("best")}")
+        print(f"Average: {r.get("average")}")
+        print(f"Worst: {r.get("worst")}")
+        print(f"Lista di tutti i makespans trovati: {r.get("makespans")}")
         print("-"*60)
 
-def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
-
-    import random
-
-    makespans = []
-    solutions = {}
-    penalties = {}
-    failures = 0
-
-    for _ in range(n_runs):
-
-        pl = priority_list.copy()
-        random.shuffle(pl)
-
-        try:
-            sol = sgs.parallel(pl, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5)
-            makespan = max(x["end"] for x in sol)
-            makespans.append(makespan)
-            solutions[makespan] = sol
-            penalties[makespan] = sgs.penalty_par
-        except RuntimeError:
-            failures += 1
-
-    if makespans:
-        print(f"\nRuns: {n_runs}")
-        print(f"Success: {len(makespans)}")
-        print(f"Failures: {failures}")
-        print(f"Best: {min(makespans)}")
-        print(f"Avg: {sum(makespans)/len(makespans):.2f}")
-        print(f"Worst: {max(makespans)}")
-    else:
-        print("Nessuna soluzione trovata")
-
-    return makespans, solutions.get(min(makespans)), penalties
-
-def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
-
-    import random
-
-    makespans = []
-    solutions = {}
-    penalties = {}
-    failures = 0
-
-    for _ in range(n_runs):
-
-        pl = priority_list.copy()
-        random.shuffle(pl)
-
-        try:
-            sol = sgs.serial(pl, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5)
-            makespan = max(x["end"] for x in sol)
-            makespans.append(makespan)
-            penalties[makespan] = sgs.penalty_ser
-        except RuntimeError:
-            failures += 1
-
-    if makespans:
-        print(f"\nRuns: {n_runs}")
-        print(f"Success: {len(makespans)}")
-        print(f"Failures: {failures}")
-        print(f"Best: {min(makespans)}")
-        print(f"Avg: {sum(makespans)/len(makespans):.2f}")
-        print(f"Worst: {max(makespans)}")
-    else:
-        print("Nessuna soluzione trovata")
-
-    return makespans, solutions.get(min(makespans)), penalties
+    print("-"*60)
+    print("La migliore soluzione in assoluto, tra tutte le regole di priorità e tra il seriale e il parallelo è:")
+    print(f"Regola: {best_solution_overall["regola"]}")
+    print(f"Makespan: {best_solution_overall["makespan"]}")
+    print(f"Soluzione: {best_solution_overall["soluzione"]}")
+    print(f"Penalità: {best_solution_overall["penalità"]}")
+    print(f"Score: {best_solution_overall["score"]}")
+    print("-"*60)
 
 if __name__ == "__main__":
     test_modulo()

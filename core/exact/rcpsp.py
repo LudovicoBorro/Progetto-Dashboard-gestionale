@@ -20,6 +20,7 @@ Vincoli fondamentali:
 from collections import defaultdict, deque
 from ortools.sat.python import cp_model as cpm
 from utils.validators.validate_input_rcpsp import validate_inputs
+import time
 
 class Model:
     """
@@ -40,7 +41,7 @@ class Model:
         Matrice r[i][k]: unità di risorsa k usate dall'attività i
         per ogni istante in cui è in esecuzione.
         consumption[0][k] = consumption[n-1][k] = 0 per ogni k.
-    deadline : int
+    horizon : int
         Orizzonte temporale massimo D. Definisce il dominio delle variabili.
     validate_input : bool
         Se True esegue la validazione degli input prima di costruire il modello.
@@ -53,7 +54,7 @@ class Model:
         precedences: list[tuple[int, int]],
         resources: list[int],
         consumption: list[list[int]],
-        deadline: int,
+        horizon: int,
         validate_input: bool = True,
     ):
         self._n = n
@@ -62,7 +63,7 @@ class Model:
         self._precedences = precedences
         self._resources = resources
         self._consumption = consumption
-        self._deadline = deadline
+        self._horizon = horizon
 
         # Risultati (popolati da solve)
         self._start_times: dict[int, int] | None = None
@@ -103,7 +104,7 @@ class Model:
         l'attività i rispettando la deadline. Serve per 
         ridurre il dominio di start[i].
         """
-        return self._deadline - self._durations[i]
+        return self._horizon - self._durations[i]
 
     # ──────────────────────────────────────────────────────────────────────────
     # BUILD MODEL
@@ -147,7 +148,7 @@ class Model:
         }
 
         # Creo la variabile Cmax
-        Cmax = model.new_int_var(0, self._deadline, "makespan")
+        Cmax = model.new_int_var(0, self._horizon, "makespan")
 
         # ── Attività fittizia iniziale fissata a 0 ────────────────────────────
         model.add(start[0] == 0)
@@ -269,6 +270,20 @@ class Model:
         ]
 
         return sorted(schedule, key=lambda r: r["start"])
+    
+    def get_final_solution(self):
+        """
+        Metodo da chiamare per costruire il modello,
+        risolverlo e restituire la soluzione.
+        """
+        model, start, Cmax = self.build_model()
+        start_time = time.time()
+        status = self.solve()
+        end_time = time.time()
+        schedule = self.get_schedule()
+
+        return {"model": model, "start": start, "Cmax": Cmax, "status": status, 
+                "schedule": schedule, "elapsed_time": end_time - start_time}
 
     # ──────────────────────────────────────────────────────────────────────────
     # PROPERTIES

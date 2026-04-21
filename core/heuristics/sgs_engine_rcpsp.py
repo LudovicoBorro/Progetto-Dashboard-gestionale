@@ -29,7 +29,7 @@ class SGSEngine:
             precedences: list[tuple[int, int]],
             resources: list[int],
             consumption: list[list[int]],
-            deadline: int,
+            horizon: int,
             validate_input: bool = True,
             ):
         self._n = n
@@ -38,7 +38,7 @@ class SGSEngine:
         self._precedences = precedences
         self._resources = resources
         self._consumption = consumption
-        self._deadline = deadline
+        self._horizon = horizon
 
         self._schedule_serial: list[dict[int, int, int]] | None = None
         self._makespan_serial: int | None = None
@@ -63,7 +63,7 @@ class SGSEngine:
         scheduled = set()
 
         # Definisco orizzonte temporale massimo (nel peggiore dei casi: tutte in serie)
-        horizon = min(sum(self._durations), self._deadline)
+        horizon = min(sum(self._durations), self._horizon)
 
         consumption_profile = np.zeros((len(self._resources), horizon + 1), dtype=int)
 
@@ -228,13 +228,13 @@ class SGSEngine:
             schedule.append(
                 {"activity": a, "start": t, "end": finish_times[a]}
             )
-
+        
         return sorted(schedule, key=lambda x: x["start"])
 
 def test_modulo():
     from core.heuristics.priority_rules import wrapper_rule
     from tests.instance_rcpsp_and_rcpsp_max import Instance
-    import random
+    from core.heuristics.multistart_rcpsp import get_best_solution_overall
 
     # Input 
     n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_instance()
@@ -327,107 +327,29 @@ def test_modulo():
     print("Esecuzione multitest seriale e parallelo per ciascuna regola.")
     print(f"Ogni funzione verra eseguita {N} volte per regola.")
 
-    list_regole = ['spt', 'mts', 'grd', 'lft_rcpsp', 'lst_rcpsp', 'mslk_rcpsp']
+    risultati, best_solution_overall = get_best_solution_overall(sgs, n, durations, precedences_rcpsp, resources, consumption, horizon, N)
 
-    best_solutions = {}
-
-    for regola in list_regole:
-        print(f"\n TEST REGOLA {regola.upper()}")
-        
-        priority_list = wrapper_rule(regola, n, durations, precedences_rcpsp, resources=resources, consumption=consumption,
-                                horizon=horizon)
+    for k, r in risultati.items():
+        print(f"\n TEST REGOLA {k.upper()}")
 
         print("-"*60)
-        print("Test seriale:")
-        makespans, best_sol = test_multistart_stats_serial(sgs, priority_list, N)
-        print(f"Lista di tutti i makespans trovati: {makespans}")
+        print(f"Runs: {r.get("runs")}")
+        print(f"Success: {r.get("success")}")
+        print(f"Failures: {r.get("failures")}")
+        print(f"Best: {r.get("best")}")
+        print(f"Average: {r.get("average")}")
+        print(f"Worst: {r.get("worst")}")
+        print(f"Lista di tutti i makespans trovati: {r.get("makespans")}")
         print("-"*60)
-        best_solutions[regola + "_serial"] = best_sol
 
-        print("-"*60)
-        print("Test parallelo:")
-        makespans, best_sol = test_multistart_stats_parallel(sgs, priority_list, N)
-        print(f"Lista di tutti i makespans trovati: {makespans}")
-        print("-"*60)
-        best_solutions[regola + "_parallel"] = best_sol
+    print("-"*60)
+    print("La migliore soluzione in assoluto, tra tutte le regole di priorità e tra il seriale e il parallelo è:")
+    print(f"Regola: {best_solution_overall["regola"]}")
+    print(f"Makespan: {best_solution_overall["makespan"]}")
+    print(f"Soluzione: {best_solution_overall["soluzione"]}")
+    print("-"*60)
 
-def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
 
-    import random
-
-    makespans = []
-    best_solution = None
-    best_makespan = None
-    best = {}
-    failures = 0
-
-    for _ in range(n_runs):
-
-        pl = priority_list.copy()
-        random.shuffle(pl)
-
-        try:
-            sol = sgs.parallel(pl)
-            makespan = max(x["end"] for x in sol)
-            makespans.append(makespan)
-            if best_makespan is None or makespan < best_makespan:
-                best_makespan = makespan
-                best_solution = sol
-        except RuntimeError:
-            failures += 1
-
-    if makespans:
-        print(f"\nRuns: {n_runs}")
-        print(f"Success: {len(makespans)}")
-        print(f"Failures: {failures}")
-        print(f"Best: {min(makespans)}")
-        print(f"Avg: {sum(makespans)/len(makespans):.2f}")
-        print(f"Worst: {max(makespans)}")
-    else:
-        print("Nessuna soluzione trovata")
-
-    best[best_makespan] = best_solution
-
-    return makespans, best
-
-def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
-
-    import random
-
-    makespans = []
-    best_solution = None
-    best_makespan = None
-    best = {}
-    failures = 0
-
-    for _ in range(n_runs):
-
-        pl = priority_list.copy()
-        random.shuffle(pl)
-
-        try:
-            sol = sgs.serial(pl)
-            makespan = max(x["end"] for x in sol)
-            makespans.append(makespan)
-            if best_makespan is None or makespan < best_makespan:
-                best_makespan = makespan
-                best_solution = sol
-        except RuntimeError:
-            failures += 1
-
-    if makespans:
-        print(f"\nRuns: {n_runs}")
-        print(f"Success: {len(makespans)}")
-        print(f"Failures: {failures}")
-        print(f"Best: {min(makespans)}")
-        print(f"Avg: {sum(makespans)/len(makespans):.2f}")
-        print(f"Worst: {max(makespans)}")
-    else:
-        print("Nessuna soluzione trovata")
-
-    best[best_makespan] = best_solution
-
-    return makespans, best
 
 if __name__ == "__main__":
     test_modulo()

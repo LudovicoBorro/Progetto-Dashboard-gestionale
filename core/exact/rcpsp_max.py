@@ -35,7 +35,7 @@ Vincoli fondamentali:
 from collections import defaultdict, deque
 from ortools.sat.python import cp_model as cpm
 from utils.validators.validate_input_rcpsp_max import validate_inputs
-import random
+import random, time
 
 class Model:
     """
@@ -371,6 +371,20 @@ class Model:
         ]
 
         return sorted(schedule, key=lambda r: r["start"])
+    
+    def get_final_solution(self):
+        """
+        Metodo da chiamare per costruire il modello,
+        risolverlo e restituire la soluzione.
+        """
+        model, start, Cmax = self.build_model()
+        start_time = time.time()
+        status = self.solve()
+        end_time = time.time()
+        schedule = self.get_schedule()
+
+        return {"model": model, "start": start, "Cmax": Cmax, "status": status, 
+                "schedule": schedule, "elapsed_time": end_time - start_time}
     
     # ──────────────────────────────────────────────────────────────────────────
     # PROPERTIES
