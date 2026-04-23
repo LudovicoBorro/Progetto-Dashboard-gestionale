@@ -156,6 +156,7 @@ class SGSEngine:
 
             scheduled_flag = False 
 
+            t = 0
             for (j, es_j, ls_j) in valid:
 
                 # nodo iniziale
@@ -389,7 +390,7 @@ class SGSEngine:
                 best_choice = None
 
                 if len(candidates_global) == 0:
-                    raise("Fallback impossibile: nessuna attività eleggibile disponibile")
+                    raise RuntimeError("Fallback impossibile: nessuna attività eleggibile disponibile")
 
                 for (j, es_j, ls_j) in candidates_global:
                     if j in scheduled or j in ongoing:

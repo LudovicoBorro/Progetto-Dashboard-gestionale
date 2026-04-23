@@ -212,7 +212,7 @@ class SolverOrchestrator:
         preprocessing = False
         if rcpsp_max:
             try:
-                self._pre_processing_rcpsp_max(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates)
+                self._pre_processing_rcpsp_max(n, durations, precedences, resources, consumption, horizon, release_dates, due_dates)
                 preprocessing = True
             except Exception as e:
                 raise e
@@ -397,10 +397,10 @@ class SolverOrchestrator:
         else:
             if mode == "single_start":
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,
-                                           self._consumption, self._horizon, n_runs=1, regola=rule, top_k=1)
+                                           self._consumption, self._horizon, n_runs=1, regola=rule, top_k=top_k)
             elif mode == "multi_start":
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,
-                                           self._consumption, self._horizon, n_runs=n_runs, regola=rule, top_k=1)
+                                           self._consumption, self._horizon, n_runs=n_runs, regola=rule, top_k=top_k)
 
     def _build_sgs(self, rcpsp_max):
         if rcpsp_max:

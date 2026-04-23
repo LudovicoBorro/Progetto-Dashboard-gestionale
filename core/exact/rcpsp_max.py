@@ -323,24 +323,22 @@ class Model:
                 i: solver.value(start[i]) for i in self._activities
             }
             self._makespan = solver.value(Cmax)
-
-        value = int(solver.objective_value) 
-        bound = int(solver.best_objective_bound)
-
-        gap = value - bound
-        
-        self._solutions = {
-            "status": solver.status_name(raw_status),
-            "makespan": value,
-            "best_bound": bound,
-            "gap": gap
-        }
-
-        if gap > 0:
-            print("-"*60)
-            print("ATTENZIONE! La soluzione potrebbe non essere ottima!")
-            print(f"Makespan: {value} -- Best bound: {bound}")
-            print("-"*60)
+            value = int(solver.objective_value) 
+            bound = int(solver.best_objective_bound)
+            gap = value - bound
+            self._solutions = {
+                "status": solver.status_name(raw_status),
+                "makespan": value,
+                "best_bound": bound,
+                "gap": gap
+            }
+        else:
+            self._solutions = {
+                "status": solver.status_name(raw_status),
+                "makespan": None,
+                "best_bound": None,
+                "gap": None
+            }
 
         return solver.status_name(raw_status)
     
@@ -384,7 +382,7 @@ class Model:
         schedule = self.get_schedule()
 
         return {"solution": self.solutions, "start": self.start_times, 
-                "Cmax": Cmax, "schedule": schedule, 
+                "Cmax": self.makespan, "schedule": schedule, 
                 "elapsed_time": end_time - start_time}
     
     # ──────────────────────────────────────────────────────────────────────────

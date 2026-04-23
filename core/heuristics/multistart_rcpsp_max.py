@@ -39,7 +39,7 @@ def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_
         all_results[reg + "_parallel"] = risultati_test
         all_specs[reg + "_parallel"] = specifiche
 
-    best_solution_overall = compute_best_solution(all_specs, min(top_k, len(all_results.get(regole_da_testare[0]+"_parallel"))))
+    best_solution_overall = compute_best_solution(all_specs, min(top_k, len(all_specs.get(regole_da_testare[0]+"_parallel"))))
 
     return all_results, best_solution_overall, all_specs
 
