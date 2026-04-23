@@ -29,6 +29,23 @@ from core.exact.rcpsp_max import Model as RCPSPMaxModel
 class SolverOrchestrator:
 
     def __init__(self):
+        """
+        Inizializza un'istanza di SolverOrchestrator.
+        
+        Questa classe gestisce l'orchestrazione della risoluzione di problemi di scheduling
+        (RCPSP e RCPSP_MAX) scegliendo automaticamente il modello più appropriato.
+        
+        Attributi:
+            _n: Numero totale di attività (incluse dummy)
+            _activities: Lista delle attività
+            _durations: Lista delle durate delle attività
+            _precedences: Lista delle precedenze tra attività
+            _resources: Lista delle disponibilità delle risorse
+            _consumption: Matrice dei consumi di risorse per attività
+            _horizon: Orizzonte temporale massimo
+            _release_dates: Date di inizio disponibilità attività (RCPSP_MAX)
+            _due_dates: Date di scadenza delle attività (RCPSP_MAX)
+        """
         self._n = None
         self._activities = None
         self._durations = None
@@ -45,7 +62,25 @@ class SolverOrchestrator:
 
     def _pre_processing_rcpsp(self, n: int, durations: list[int], precedences: list[tuple[int,int]], resources: list[int], 
                              consumption: list[list[int]], horizon: int):
-
+        """
+        Preprocessing dei dati di input per il problema RCPSP.
+        
+        Trasforma i dati forniti dall'utente nel formato interno richiesto dal modello.
+        Aggiunge le attività dummy iniziale e finale, effettua lo shift degli indici
+        per adattarsi alla numerazione interna, e valida i dati processati.
+        
+        Args:
+            n: Numero di attività (senza dummy)
+            durations: Lista delle durate di ciascuna attività
+            precedences: Lista di tuple (i,j) che rappresentano le precedenze
+            resources: Lista delle disponibilità di ciascuna risorsa
+            consumption: Matrice dei consumi di risorse per attività
+            horizon: Limite temporale per il completamento del progetto
+            
+        Raises:
+            RuntimeError: Se le precedenze hanno un formato errato
+            Exception: Se la validazione dei dati fallisce
+        """
         for elem in precedences:
             if len(elem) != 2:
                 raise RuntimeError("Le precedenze passate hanno un formato errato!")
@@ -79,7 +114,26 @@ class SolverOrchestrator:
 
     def _pre_processing_rcpsp_max(self,  n: int, durations: list[int], precedences: list[tuple[int,int,str,int,int | None]], resources: list[int], 
                                  consumption: list[list[int]], horizon: int, release_dates: list[int], due_dates: list[int]):
-
+        """
+        Preprocessing dei dati di input per il problema RCPSP_MAX.
+        
+        Estende il preprocessing RCPSP per gestire vincoli aggiuntivi come date di inizio
+        e scadenza, e precedenze di tipo minmax (FS, SS, FF, SF) con lag minimo e massimo.
+        
+        Args:
+            n: Numero di attività (senza dummy)
+            durations: Lista delle durate di ciascuna attività
+            precedences: Lista di tuple (i,j,tipo,lag,lag_max) dove tipo è uno tra FS,SS,FF,SF
+            resources: Lista delle disponibilità di ciascuna risorsa
+            consumption: Matrice dei consumi di risorse per attività
+            horizon: Limite temporale per il completamento del progetto
+            release_dates: Data di disponibilità di ciascuna attività
+            due_dates: Data di scadenza di ciascuna attività
+            
+        Raises:
+            RuntimeError: Se le precedenze hanno un formato errato
+            Exception: Se la validazione dei dati fallisce
+        """
         for elem in precedences:
             if len(elem) != 5:
                 raise RuntimeError("Le precedenze passate hanno un formato errato!")
@@ -115,6 +169,23 @@ class SolverOrchestrator:
             raise e
 
     def _convert_precedences_to_minmax(self, precedences, durations) -> list[tuple[int, int, int, int | None]]:
+        """
+        Converte le precedenze da formato testuale (FS,SS,FF,SF) al formato interno minmax.
+        
+        Trasforma le precedenze notazionali standard (FinishStart, StartStart, FinishFinish, StartFinish)
+        in vincoli minmax (lag_min, lag_max) utilizzando le durate delle attività.
+        Questo è necessario per convertire i vincoli logici in vincoli temporali numerici.
+        
+        Args:
+            precedences: Lista di tuple (i,j,tipo,lag,lag_max)
+            durations: Lista delle durate delle attività (per il calcolo dei lag)
+            
+        Returns:
+            Lista di tuple (i, j, lag_minimo, lag_massimo)
+            
+        Raises:
+            ValueError: Se il tipo di precedenza non è supportato
+        """
         result = []
 
         for (i, j, type, lag, max_lag) in precedences:
@@ -143,6 +214,21 @@ class SolverOrchestrator:
         return result
     
     def _add_dummy_activities(self, precedences, rcpsp_max: bool):
+        """
+        Aggiunge le attività dummy (inizio e fine) al grafo delle precedenze.
+        
+        Le attività dummy sono necessarie per rappresentare il punto di inizio e il punto di fine
+        di tutto il progetto. Connette tutte le attività senza predecessori alla dummy iniziale
+        e tutte le attività senza successori alla dummy finale.
+        Questo garantisce una struttura di grafo valida per gli algoritmi di scheduling.
+        
+        Args:
+            precedences: Lista delle precedenze (già shiftate)
+            rcpsp_max: True se il problema è RCPSP_MAX, False se RCPSP
+            
+        Returns:
+            Lista aggiornata delle precedenze con i collegamenti alle dummy aggiunti
+        """
         new_precedences = []
 
         has_pred = {j: False for j in range(self._n)}
@@ -180,6 +266,20 @@ class SolverOrchestrator:
         return precedences + new_precedences
 
     def _shift_precedences(self, precedences, rcpsp_max: bool):
+        """
+        Effettua lo shift degli indici delle precedenze di +1.
+        
+        Questa operazione è necessaria perché l'utente fornisce attività numerati da 0,
+        ma internamente la dummy iniziale occupa l'indice 0. Pertanto tutti gli indici
+        delle attività devono essere shiftati di +1.
+        
+        Args:
+            precedences: Lista delle precedenze originali (numerazione utente 0-based)
+            rcpsp_max: True se il problema è RCPSP_MAX, False se RCPSP
+            
+        Returns:
+            Lista delle precedenze con indici shiftati di +1
+        """
         shifted = []
 
         if rcpsp_max:
@@ -204,10 +304,37 @@ class SolverOrchestrator:
                      consumption: list[list[int]], horizon: int, release_dates: list[int] = None, due_dates: list[int] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
                      priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False):
         """
-        Funzione principale del sistema decisionale.
+        Esegue il preprocessing dei dati e sceglie il modello più appropriato (esatto o euristico)
+        in base ai parametri ricevuti dall'utente e alla difficoltà stimata dell'istanza.
+        La scelta tra modelli esatti e euristici, nonché la configurazione degli euristici,
+        è automatica e basata su metriche dell'istanza per garantire un equilibrio tra qualità
+        della soluzione e tempo di esecuzione.
         
-        Esegue il preprocessing dei dati in base e sceglie il modello da lanciare in base ai parametri ricevuti dall'utente e
-        alla difficoltà dell'istanza.
+        Args:
+            n: Numero di attività
+            durations: Lista delle durate
+            precedences: Lista delle precedenze (FS,SS,FF,SF per RCPSP_MAX oppure semplici coppie per RCPSP)
+            resources: Liste delle disponibilità di risorse
+            consumption: Matrice dei consumi di risorse
+            horizon: Limite temporale
+            release_dates: Date di disponibilità (opzionale, per RCPSP_MAX)
+            due_dates: Date di scadenza (opzionale, per RCPSP_MAX)
+            top_k: Numero di soluzioni top da mantenere nel ranking
+            time_weight: Peso del makespan nella funzione obiettivo (RCPSP_MAX)
+            resource_weight: Peso dell'utilizzo di risorse (RCPSP_MAX)
+            priority_weight: Peso delle priorità (RCPSP_MAX)
+            tardiness_weight: Peso del tardiness (RCPSP_MAX)
+            limit_lookahead: Profondità di lookahead per l'algoritmo SGS (RCPSP_MAX)
+            instant_sol: Se True, esegue euristici veloci; se False, cerca soluzione esatta
+            priority_rule: Regola di priorità da usare negli euristici (opzionale)
+            rcpsp_max: True per risolvere RCPSP_MAX, False per RCPSP
+            
+        Returns:
+            Dizionario con chiavi:
+                - 'type': Tipo di modello usato ('exact', 'heuristic_single_start', 'heuristic_multi_start', 'heuristic_fallback')
+                - 'problem_difficulty': Difficoltà stimata ('easy', 'medium', 'hard')
+                - 'results': Dettagli computazionali (None per exact)
+                - 'best': Soluzione migliore trovata
         """
         preprocessing = False
         if rcpsp_max:
@@ -279,11 +406,27 @@ class SolverOrchestrator:
                 solution = self._run_exact_model(rcpsp_max=rcpsp_max)
                 return {"type": "exact", "problem_difficulty": diff, "results": None, "best": solution}
             except Exception:
-                all_results, best_solution, all_specs = self._run_sgs(rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500)
+                all_results, best_solution, all_specs = self._run_sgs(rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500, top_k=top_k)
                 return {"type": "heuristic_fallback", "problem_difficulty": diff, "results": all_results, "best": best_solution}
 
     def _calcola_diff(self):
-
+        """
+        Stima la difficoltà computazionale dell'istanza del problema.
+        
+        Calcola un score basato su 6 metriche caratteristiche dell'istanza:
+        1. Densità del grafo delle precedenze
+        2. Criticità delle risorse (tightness)
+        3. Variabilità delle durate
+        4. Squilibrio nell'utilizzo delle risorse
+        5. Pressione temporale (rapporto durata totale / horizon)
+        6. Dimensione del problema
+        
+        Queste metriche sono combinate in uno score finale che classifica il problema
+        in categorie: easy (score <= 3), medium (score <= 7), hard (score > 7).
+        
+        Returns:
+            Stringa tra 'easy', 'medium', 'hard' che rappresenta la difficoltà stimata
+        """
         n = self._n
         m = len(self._precedences)
         R = len(self._resources)
@@ -316,7 +459,8 @@ class SolverOrchestrator:
             for r in range(R):
                 resource_usage[r] += self._consumption[i][r]
 
-        imbalance = max(resource_usage) / (sum(resource_usage)/R) if R > 0 else 0
+        total_usage = sum(resource_usage)
+        imbalance = max(resource_usage) / (total_usage / R) if (R > 0 and total_usage > 0) else 0
 
         # 5) Time pressure
         total_duration = sum(self._durations)
@@ -378,7 +522,33 @@ class SolverOrchestrator:
             return "hard"
 
     def _run_sgs(self, rcpsp_max, top_k, mode = None, rule = None, n_runs = 1):
-
+        """
+        Esegue l'algoritmo euristico SGS (Serial Generation Scheme) per risolvere il problema.
+        
+        Delega l'esecuzione ai moduli di heuristica (multistart_rcpsp e multistart_rcpsp_max)
+        che implementano lo schema decisionale dell'SGS con possibilità di:
+        - Single start: Una sola esecuzione dell'algoritmo
+        - Multi start: Esecuzioni multiple con regole di priorità diverse
+        
+        Args:
+            rcpsp_max: True per RCPSP_MAX, False per RCPSP
+            top_k: Numero di soluzioni top da restituire
+            mode: 'single_start' o 'multi_start'
+            rule: Regola di priorità da usare (opzionale)
+            n_runs: Numero di iterazioni in caso di multi_start
+            
+        Returns:
+            Tupla (all_results, best_solution, all_specs) contenente:
+                - all_results: Dettagli computazionali
+                - best_solution: Miglior soluzione trovata
+                - all_specs: Specifiche di tutte le soluzioni
+                
+        Raises:
+            ValueError: Se mode non è 'single_start' o 'multi_start'
+        """
+        if mode not in ["single_start", "multi_start"]:
+            raise ValueError(f"Mode non riconosciuto: {mode}. Deve essere 'single_start' o 'multi_start'.")
+        
         sgs = self._build_sgs(rcpsp_max)
 
         if rcpsp_max:
@@ -389,7 +559,7 @@ class SolverOrchestrator:
                                                resources=self._resources, consumption=self._consumption, horizon=self._horizon, time_weight=self._time_weight,
                                                resource_weight=self._resource_weight, priority_weight=self._priority_weight, tardiness_weight=self._tardiness_weight,
                                                limit_lookahead=self._limit_lookahead, n_runs=1, regola=rule, top_k=top_k)
-            elif mode == "multi_start":
+            else:  # multi_start
                 return best_solution_rcpsp_max(sgs, self._n, self._durations, precedences_rcpsp=precedences_rcpsp, precedences_rcpsp_max=precedences_rcpsp_max,
                                                resources=self._resources, consumption=self._consumption, horizon=self._horizon, time_weight=self._time_weight,
                                                resource_weight=self._resource_weight, priority_weight=self._priority_weight, tardiness_weight=self._tardiness_weight,
@@ -398,11 +568,23 @@ class SolverOrchestrator:
             if mode == "single_start":
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,
                                            self._consumption, self._horizon, n_runs=1, regola=rule, top_k=top_k)
-            elif mode == "multi_start":
+            else:  # multi_start
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,
                                            self._consumption, self._horizon, n_runs=n_runs, regola=rule, top_k=top_k)
 
     def _build_sgs(self, rcpsp_max):
+        """
+        Costruisce e restituisce un'istanza dell'engine SGS appropriato.
+        
+        Crea l'oggetto SGS con i parametri preprocessati in modo che sia pronto
+        per essere utilizzato da algoritmi euristici.
+        
+        Args:
+            rcpsp_max: True per usare SGSEngineMax, False per usare SGSEngine
+            
+        Returns:
+            Istanza di SGSEngine o SGSEngineMax con validazione input abilitata
+        """
         if rcpsp_max:
             return SGSEngineMax(self._n, self._durations, self._precedences, self._resources,
                                self._consumption, self._horizon, self._release_dates, self._due_dates, validate_input=True)
@@ -410,12 +592,36 @@ class SolverOrchestrator:
             return SGSEngine(self._n, self._durations, self._precedences, self._resources, self._consumption, self._horizon, validate_input=True)
         
     def _run_exact_model(self, rcpsp_max):
+        """
+        Esegue il modello esatto (ottimale) per risolvere il problema.
         
+        Costruisce un'istanza del modello esatto
+        e lo risolve per ottenere la soluzione ottima.
+        
+        Args:
+            rcpsp_max: True per risolvere RCPSP_MAX, False per RCPSP
+            
+        Returns:
+            Soluzione ottima trovata dal modello
+        """
         model = self._build_exact_model(rcpsp_max)
 
         return model.get_final_solution()
 
     def _build_exact_model(self, rcpsp_max):
+        """
+        Costruisce e restituisce un'istanza del modello esatto appropriato.
+        
+        Crea un'istanza del modello con i parametri
+        preprocessati. Il modello rappresenta il problema di scheduling come problema
+        di programmazione lineare intera, garantendo soluzioni ottimali.
+        
+        Args:
+            rcpsp_max: True per usare RCPSPMaxModel, False per usare RCPSPModel
+            
+        Returns:
+            Istanza di RCPSPModel o RCPSPMaxModel con validazione input abilitata
+        """
         if rcpsp_max:
             return RCPSPMaxModel(self._n, self._durations, self._resources,
                                  self._consumption, self._precedences, self._horizon,
