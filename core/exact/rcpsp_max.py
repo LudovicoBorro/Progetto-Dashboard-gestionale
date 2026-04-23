@@ -383,8 +383,9 @@ class Model:
         end_time = time.time()
         schedule = self.get_schedule()
 
-        return {"model": model, "start": start, "Cmax": Cmax, "status": status, 
-                "schedule": schedule, "elapsed_time": end_time - start_time}
+        return {"solution": self.solutions, "start": self.start_times, 
+                "Cmax": Cmax, "schedule": schedule, 
+                "elapsed_time": end_time - start_time}
     
     # ──────────────────────────────────────────────────────────────────────────
     # PROPERTIES

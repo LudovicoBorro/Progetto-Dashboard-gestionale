@@ -1,6 +1,6 @@
 from core.heuristics.priority_rules import wrapper_rule
 
-def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, 
+def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, top_k=5,
                               time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5, n_runs = 100, regola: str = None):
     """
     Funzione che calcola la soluzione migliore in assoluto eseguendo n_runs volte
@@ -39,35 +39,56 @@ def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_
         all_results[reg + "_parallel"] = risultati_test
         all_specs[reg + "_parallel"] = specifiche
 
-    best_solution_overall = compute_best_solution(all_specs)
+    best_solution_overall = compute_best_solution(all_specs, min(top_k, len(all_results.get(regole_da_testare[0]+"_parallel"))))
 
     return all_results, best_solution_overall, all_specs
 
-def compute_best_solution(all_specs):
+def compute_best_solution(all_specs, top_k):
     
-    best = None
-    best_key = None
-    best_score = None
+    all_candidates = []
 
+    # 1) Flatten di tutte le soluzioni
     for key, specs_list in all_specs.items():
         for spec in specs_list:
-            score = spec["score"]
+            all_candidates.append({
+                "regola": key,
+                "soluzione": spec["solution"],
+                "makespan": spec["makespan"],
+                "penalità": float(spec["penalty"]),
+                "score": float(spec["score"])
+            })
 
-            if best_score is None or score < best_score:
-                best_score = score
-                best = spec
-                best_key = key
+    all_candidates = unique_solutions(all_candidates)
 
-    if best is None:
+    if not all_candidates:
         raise RuntimeError("Nessuna soluzione valida trovata.")
-    
+
+    # 2) Ordinamento per score
+    sorted_by_score = sorted(all_candidates, key=lambda x: x["score"])
+
+    # 3) Ordinamento per makespan
+    sorted_by_makespan = sorted(all_candidates, key=lambda x: x["makespan"])
+
+    # 4) Best assoluto, secondo lo score
+    best = sorted_by_score[0]
+
     return {
-        "regola": best_key,
-        "soluzione": best["solution"],
-        "makespan": best["makespan"],
-        "penalità": best["penalty"],
-        "score": best_score
+        "best": best,
+        "top_k_score": sorted_by_score[:top_k],
+        "top_k_makespan": sorted_by_makespan[:top_k]
     }
+
+def unique_solutions(candidates):
+    seen = set()
+    unique = []
+
+    for c in candidates:
+        key = tuple((x["activity"], x["start"], x["end"]) for x in c["soluzione"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+
+    return unique
 
 def test_multistart_stats_parallel(sgs, priority_list, time_weight, resource_weight, priority_weight, tardiness_weight, limit_lookahead, n_runs=100):
 

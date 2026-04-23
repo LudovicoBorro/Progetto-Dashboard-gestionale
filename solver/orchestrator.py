@@ -38,17 +38,17 @@ class SolverOrchestrator:
         self._horizon = None
         self._release_dates = None
         self._due_dates = None
-        self._prepocessing = False
-        self._rcpsp_max = False
 
     #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
     # PREPROCESSING DEGLI INPUT PER COMPATIBILITÀ MODELLI
     #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-    def pre_processing_rcpsp(self, n: int, durations: list[int], precedences: list[tuple[int,int]], resources: list[int], 
+    def _pre_processing_rcpsp(self, n: int, durations: list[int], precedences: list[tuple[int,int]], resources: list[int], 
                              consumption: list[list[int]], horizon: int):
-        
-        self._prepocessing = False
+
+        for elem in precedences:
+            if len(elem) != 2:
+                raise RuntimeError("Le precedenze passate hanno un formato errato!")
         
         # Aggiungo le attività dummy, quella iniziale e finale
         self._n = n + 2
@@ -62,18 +62,27 @@ class SolverOrchestrator:
         precedences = self._add_dummy_activities(precedences=precedences, rcpsp_max=False)
         self._precedences = precedences
 
+        # TEST PROCESSING
+        print(f"Numero attività: {self._n}")
+        print(f"Lista attività: {self._activities}")
+        print(f"Lista durate: {self._durations}")
+        print(f"Lista risorse: {self._resources}")
+        print(f"Consumi: {self._consumption}")
+        print(f"Horizon: {self._horizon}")
+        print(f"Precedenze: {self._precedences}")
+
         # Lancio una validazione dei dati processati
         try:
             val_inputs_rcpsp(self)
         except Exception as e:
             raise e
-        
-        self._prepocessing = True
 
-    def pre_processing_rcpsp_max(self,  n: int, durations: list[int], precedences: list[tuple[int,int,str,int,int | None]], resources: list[int], 
+    def _pre_processing_rcpsp_max(self,  n: int, durations: list[int], precedences: list[tuple[int,int,str,int,int | None]], resources: list[int], 
                                  consumption: list[list[int]], horizon: int, release_dates: list[int], due_dates: list[int]):
-        
-        self._prepocessing = False
+
+        for elem in precedences:
+            if len(elem) != 5:
+                raise RuntimeError("Le precedenze passate hanno un formato errato!")
         
         # Aggiungo le attività dummy, quella iniziale e finale
         self._n = n + 2
@@ -90,14 +99,20 @@ class SolverOrchestrator:
         precedences = self._add_dummy_activities(precedences=precedences, rcpsp_max=True)
         self._precedences = precedences
 
+        # TEST PROCESSING
+        print(f"Numero attività: {self._n}")
+        print(f"Lista attività: {self._activities}")
+        print(f"Lista durate: {self._durations}")
+        print(f"Lista risorse: {self._resources}")
+        print(f"Consumi: {self._consumption}")
+        print(f"Horizon: {self._horizon}")
+        print(f"Precedenze: {self._precedences}")
+
         # Lancio una validazione dei dati processati
         try:
             val_inputs_rcpsp_max(self)
         except Exception as e:
             raise e
-        
-        self._prepocessing = True
-        self._rcpsp_max = True
 
     def _convert_precedences_to_minmax(self, precedences, durations) -> list[tuple[int, int, int, int | None]]:
         result = []
@@ -185,20 +200,35 @@ class SolverOrchestrator:
     # SISTEMA DECISIONALE
     #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-    def choose_model(self, instant_sol: bool = False, priority_rule: str = None, time_weight: float = 1, resource_weight: float = 1, 
-                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5):
+    def choose_model(self, n: int, durations: list[int], precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]], resources: list[int], 
+                     consumption: list[list[int]], horizon: int, release_dates: list[int] = None, due_dates: list[int] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
+                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False):
         """
         Funzione principale del sistema decisionale.
         
-        Sceglie il modello da lanciare in base ai parametri ricevuti dall'utente e
+        Esegue il preprocessing dei dati in base e sceglie il modello da lanciare in base ai parametri ricevuti dall'utente e
         alla difficoltà dell'istanza.
         """
-        if not self._prepocessing:
+        preprocessing = False
+        if rcpsp_max:
+            try:
+                self._pre_processing_rcpsp_max(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates)
+                preprocessing = True
+            except Exception as e:
+                raise e
+        else:
+            try:
+                self._pre_processing_rcpsp(n, durations, precedences, resources, consumption, horizon)
+                preprocessing = True
+            except Exception as e:
+                raise e
+
+        if not preprocessing:
             raise RuntimeError("Attenzione! Devi elaborare i dati con la funzione di pre processing adatta prima di scegliere il modello.")
         
         diff = self._calcola_diff()
 
-        if self._rcpsp_max:
+        if rcpsp_max:
             self._time_weight = time_weight
             self._resource_weight = resource_weight
             self._priority_weight = priority_weight
@@ -211,40 +241,46 @@ class SolverOrchestrator:
             # Lancio euristiche
             if diff == "easy":
                 # In questo caso una singola run basta
-                all_results, best_solution = self._run_sgs(
+                all_results, best_solution, all_specs = self._run_sgs(
+                    rcpsp_max=rcpsp_max,
                     mode="single_start",
                     rule=priority_rule,
+                    top_k=top_k,
                 )
                 return {"type": "heuristic_single_start", "problem_difficulty": diff,
-                         "results": all_results, "best_solution": best_solution}
+                         "results": all_results, "best": best_solution}
             elif diff == "medium":
                 # In questo caso meglio il multistart soft
-                all_results, best_solution = self._run_sgs(
+                all_results, best_solution, all_specs = self._run_sgs(
+                    rcpsp_max=rcpsp_max,
                     mode="multi_start",
                     rule=None,
                     n_runs=50,
+                    top_k=top_k,
                 )
                 return {"type": "heuristic_multi_start", "problem_difficulty": diff,
-                         "results": all_results, "best_solution": best_solution}
+                         "results": all_results, "best": best_solution}
             else:
                 # In questo caso eseguo un multistart hard
-                all_results, best_solution = self._run_sgs(
+                all_results, best_solution, all_specs = self._run_sgs(
+                    rcpsp_max=rcpsp_max,
                     mode="multi_start",
                     rule=None,
                     n_runs=500,
+                    top_k=top_k,
                 )
                 return {"type": "heuristic_multi_start", "problem_difficulty": diff,
-                         "results": all_results, "best_solution": best_solution}
+                         "results": all_results, "best": best_solution}
         # CASO 2
         # Soluzione esatta o normale richiesta
         else:
             # Lancio metodo esatto
             try:
-                solution = self._run_exact_model()
-                return {"type": "exact", "solution": solution}
+                solution = self._run_exact_model(rcpsp_max=rcpsp_max)
+                return {"type": "exact", "problem_difficulty": diff, "results": None, "best": solution}
             except Exception:
-                all_results, best_solution = self._run_sgs(mode="multi_start", rule=None, n_runs=500)
-                return {"type": "heuristic_fallback", "results": all_results, "best": best_solution}
+                all_results, best_solution, all_specs = self._run_sgs(rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500)
+                return {"type": "heuristic_fallback", "problem_difficulty": diff, "results": all_results, "best": best_solution}
 
     def _calcola_diff(self):
 
@@ -341,49 +377,87 @@ class SolverOrchestrator:
         else:
             return "hard"
 
-    def _run_sgs(self, mode = None, rule = None, n_runs = 1):
+    def _run_sgs(self, rcpsp_max, top_k, mode = None, rule = None, n_runs = 1):
 
-        sgs = self._build_sgs()
+        sgs = self._build_sgs(rcpsp_max)
 
-        if self._rcpsp_max:
+        if rcpsp_max:
             precedences_rcpsp_max = self._precedences
             precedences_rcpsp = [(i, j) for (i, j, _, _) in precedences_rcpsp_max]
             if mode == "single_start":
                 return best_solution_rcpsp_max(sgs, self._n, self._durations, precedences_rcpsp=precedences_rcpsp, precedences_rcpsp_max=precedences_rcpsp_max,
                                                resources=self._resources, consumption=self._consumption, horizon=self._horizon, time_weight=self._time_weight,
                                                resource_weight=self._resource_weight, priority_weight=self._priority_weight, tardiness_weight=self._tardiness_weight,
-                                               limit_lookahead=self._limit_lookahead, n_runs=1, regola=rule)
+                                               limit_lookahead=self._limit_lookahead, n_runs=1, regola=rule, top_k=top_k)
             elif mode == "multi_start":
                 return best_solution_rcpsp_max(sgs, self._n, self._durations, precedences_rcpsp=precedences_rcpsp, precedences_rcpsp_max=precedences_rcpsp_max,
                                                resources=self._resources, consumption=self._consumption, horizon=self._horizon, time_weight=self._time_weight,
                                                resource_weight=self._resource_weight, priority_weight=self._priority_weight, tardiness_weight=self._tardiness_weight,
-                                               limit_lookahead=self._limit_lookahead, n_runs=n_runs, regola=rule)
+                                               limit_lookahead=self._limit_lookahead, n_runs=n_runs, regola=rule, top_k=top_k)
         else:
             if mode == "single_start":
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,
-                                           self._consumption, self._horizon, n_runs=1, regola=rule)
+                                           self._consumption, self._horizon, n_runs=1, regola=rule, top_k=1)
             elif mode == "multi_start":
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,
-                                           self._consumption, self._horizon, n_runs=n_runs, regola=rule)
+                                           self._consumption, self._horizon, n_runs=n_runs, regola=rule, top_k=1)
 
-    def _build_sgs(self):
-        if self._rcpsp_max:
+    def _build_sgs(self, rcpsp_max):
+        if rcpsp_max:
             return SGSEngineMax(self._n, self._durations, self._precedences, self._resources,
                                self._consumption, self._horizon, self._release_dates, self._due_dates, validate_input=True)
         else:
             return SGSEngine(self._n, self._durations, self._precedences, self._resources, self._consumption, self._horizon, validate_input=True)
         
-    def _run_exact_model(self):
+    def _run_exact_model(self, rcpsp_max):
         
-        model = self._build_exact_model()
+        model = self._build_exact_model(rcpsp_max)
 
         return model.get_final_solution()
 
-    def _build_exact_model(self):
-        if self._rcpsp_max:
+    def _build_exact_model(self, rcpsp_max):
+        if rcpsp_max:
             return RCPSPMaxModel(self._n, self._durations, self._resources,
                                  self._consumption, self._precedences, self._horizon,
                                  self._release_dates, self._due_dates, validate_input=True)
         else:
             return RCPSPModel(self._n, self._durations, self._precedences, self._resources,
                               self._consumption, self._horizon, validate_input=True)
+
+if __name__ == '__main__':
+    from tests.instance_rcpsp_and_rcpsp_max import Instance
+
+    n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_raw_instance()
+    top_k = 5
+
+    so = SolverOrchestrator()
+
+    # so._pre_processing_rcpsp_max(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates)
+    soluzione = so.choose_model(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates, instant_sol=False, rcpsp_max=True, top_k=top_k)
+    # soluzione = so.choose_model(n, durations, precedences_rcpsp, resources, consumption, horizon, instant_sol=True, rcpsp_max=False, top_k=top_k)
+    type_exact = (soluzione.get("type") == "exact")
+    type_rcpsp_max = False
+    if not type_exact:
+        if soluzione.get("best").get("top_k_score") is not None:
+            type_rcpsp_max = True
+    print("=======================================================")
+    print(f"Metodo utilizzato: {soluzione.get("type")}")
+    print(f"Difficoltà del problema stimata: {soluzione.get("problem_difficulty")}")
+    if soluzione.get("results") is not None:
+        print(f"Risultati: {soluzione.get("results")}")
+    if not type_exact:
+        print(f"Soluzione migliore: {soluzione.get("best").get("best")}")
+        if type_rcpsp_max:
+            print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
+            for elem in soluzione.get("best").get("top_k_score")[1:top_k]:
+                print(elem)
+            print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
+            for elem in soluzione.get("best").get("top_k_makespan")[1:top_k]:
+                print(elem)
+        else:
+            print(f"\nAltre top {top_k-1} soluzioni:")
+            for elem in soluzione.get("best").get("top_k_makespan")[1:top_k]:
+                print(elem)
+    else:
+        print(f"Soluzione migliore: {soluzione.get("best")}")
+    print("=======================================================")

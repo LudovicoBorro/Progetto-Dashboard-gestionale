@@ -1,6 +1,6 @@
 from core.heuristics.priority_rules import wrapper_rule
 
-def get_best_solution_overall(sgs, n, durations, precedences, resources, consumption, horizon, n_runs = 100, regola: str = None):
+def get_best_solution_overall(sgs, n, durations, precedences, resources, consumption, horizon, top_k=5, n_runs = 100, regola: str = None):
     """
     Funzione che calcola la soluzione migliore in assoluto eseguendo n_runs volte
     le funzioni seriale e parallela per ciascuna regola di priorità.
@@ -33,26 +33,35 @@ def get_best_solution_overall(sgs, n, durations, precedences, resources, consump
         best_solutions[reg + "_parallel"] = best_sol
         all_results[reg + "_parallel"] = risultati_test
 
-    best_solution_overall = get_best_solution(best_solutions)
+    best_solution_overall = get_best_solution(best_solutions, min(top_k, len(best_solutions)))
 
-    return all_results, best_solution_overall
+    return all_results, best_solution_overall, None
 
-def get_best_solution(best_solutions):
+def get_best_solution(best_solutions, top_k):
 
-    best = None
-    regola = None
-    min_makespan = None
-
-    for reg, sol in best_solutions.items():
-        if min_makespan is None or sol.get("makespan") < min_makespan:
-            min_makespan = sol.get("makespan")
-            best = sol
-            regola = reg
-    
-    if best is None:
+    if not best_solutions:
         raise RuntimeError("Nessuna soluzione valida trovata.")
-    
-    return {"regola": regola, "soluzione": best, "makespan": min_makespan}
+
+    # 1) Trasformo in lista strutturata
+    candidates = []
+    for reg, sol in best_solutions.items():
+        candidates.append({
+            "regola": reg,
+            "soluzione": sol.get("solution"),
+            "makespan": sol.get("makespan")
+        })
+
+    # 2) Ordino per makespan
+    sorted_by_makespan = sorted(candidates, key=lambda x: x["makespan"])
+
+    # 3) Best
+    best = sorted_by_makespan[0]
+
+    return {
+        "best": best,
+        "top_k_makespan": sorted_by_makespan[:top_k],
+        "top_k_score": None
+    }
 
 def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
 
