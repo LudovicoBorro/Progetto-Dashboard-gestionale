@@ -35,6 +35,7 @@ Vincoli fondamentali:
 from collections import defaultdict, deque
 from ortools.sat.python import cp_model as cpm
 from utils.validators.validate_input_rcpsp_max import validate_inputs
+from core.exact.utils import solve
 import random, time
 
 class Model:
@@ -287,60 +288,6 @@ class Model:
         model.minimize(Cmax)
 
         return model, start, Cmax
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # SOLVE
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def solve(self, time_limit: int = 300, verbose: bool = False) -> str:
-        """
-        Risolve il modello e popola start_times, makespan e status.
-
-        Parametri
-        ----------
-        time_limit : int
-            Limite di tempo in secondi per il solver (default 300s).
-        verbose : bool
-            Se True mostra il log di ricerca del solver.
-
-        Restituisce
-        -----------
-        status : str
-            Stringa descrittiva dello stato: 'OPTIMAL', 'FEASIBLE',
-            'INFEASIBLE' o 'UNKNOWN'.
-        """
-        model, start, Cmax = self.build_model()
-
-        solver = cpm.CpSolver()
-        solver.parameters.max_time_in_seconds = time_limit
-        solver.parameters.log_search_progress = verbose
-
-        raw_status = solver.solve(model)
-        self._status = raw_status
-
-        if raw_status in (cpm.OPTIMAL, cpm.FEASIBLE):
-            self._start_times = {
-                i: solver.value(start[i]) for i in self._activities
-            }
-            self._makespan = solver.value(Cmax)
-            value = int(solver.objective_value) 
-            bound = int(solver.best_objective_bound)
-            gap = value - bound
-            self._solutions = {
-                "status": solver.status_name(raw_status),
-                "makespan": value,
-                "best_bound": bound,
-                "gap": gap
-            }
-        else:
-            self._solutions = {
-                "status": solver.status_name(raw_status),
-                "makespan": None,
-                "best_bound": None,
-                "gap": None
-            }
-
-        return solver.status_name(raw_status)
     
     # ──────────────────────────────────────────────────────────────────────────
     # OUTPUT
@@ -375,14 +322,14 @@ class Model:
         Metodo da chiamare per costruire il modello,
         risolverlo e restituire la soluzione.
         """
-        model, start, Cmax = self.build_model()
+        self.build_model()
         start_time = time.time()
-        status = self.solve()
+        solve(self)
         end_time = time.time()
         schedule = self.get_schedule()
 
         return {"solution": self.solutions, "start": self.start_times, 
-                "Cmax": self.makespan, "schedule": schedule, 
+                "makespan": self.makespan, "schedule": schedule, 
                 "elapsed_time": end_time - start_time}
     
     # ──────────────────────────────────────────────────────────────────────────
@@ -528,7 +475,7 @@ def test_modulo():
 
     # ── Solve ───────────────────────────────────────────────
     start_time = time.time()
-    status = modello.solve()
+    status = solve(modello)
     end_time = time.time()
 
     schedula = modello.get_schedule()

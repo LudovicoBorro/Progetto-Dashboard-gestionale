@@ -97,15 +97,6 @@ class SolverOrchestrator:
         precedences = self._add_dummy_activities(precedences=precedences, rcpsp_max=False)
         self._precedences = precedences
 
-        # TEST PROCESSING
-        print(f"Numero attività: {self._n}")
-        print(f"Lista attività: {self._activities}")
-        print(f"Lista durate: {self._durations}")
-        print(f"Lista risorse: {self._resources}")
-        print(f"Consumi: {self._consumption}")
-        print(f"Horizon: {self._horizon}")
-        print(f"Precedenze: {self._precedences}")
-
         # Lancio una validazione dei dati processati
         try:
             val_inputs_rcpsp(self)
@@ -152,15 +143,6 @@ class SolverOrchestrator:
         precedences = self._convert_precedences_to_minmax(precedences, self._durations)
         precedences = self._add_dummy_activities(precedences=precedences, rcpsp_max=True)
         self._precedences = precedences
-
-        # TEST PROCESSING
-        print(f"Numero attività: {self._n}")
-        print(f"Lista attività: {self._activities}")
-        print(f"Lista durate: {self._durations}")
-        print(f"Lista risorse: {self._resources}")
-        print(f"Consumi: {self._consumption}")
-        print(f"Horizon: {self._horizon}")
-        print(f"Precedenze: {self._precedences}")
 
         # Lancio una validazione dei dati processati
         try:

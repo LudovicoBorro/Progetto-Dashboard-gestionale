@@ -19,6 +19,7 @@ Vincoli fondamentali:
 
 from collections import defaultdict, deque
 from ortools.sat.python import cp_model as cpm
+from core.exact.utils import solve
 from utils.validators.validate_input_rcpsp import validate_inputs
 import time
 
@@ -148,7 +149,7 @@ class Model:
         }
 
         # Creo la variabile Cmax
-        Cmax = model.new_int_var(0, self._horizon, "makespan")
+        cmax = model.new_int_var(0, self._horizon, "makespan")
 
         # ── Attività fittizia iniziale fissata a 0 ────────────────────────────
         model.add(start[0] == 0)
@@ -180,66 +181,12 @@ class Model:
 
         # ── Vincolo 3: definizione del makespan Cmax ──────────────────────────
         for i in self._activities:
-            model.add(Cmax >= start[i] + self._durations[i])
+            model.add(cmax >= start[i] + self._durations[i])
 
         # ── Obiettivo: minimizza il makespan ──────────────────────────────────
-        model.minimize(Cmax)
+        model.minimize(cmax)
 
-        return model, start, Cmax
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # SOLVE
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def solve(self, time_limit: int = 300, verbose: bool = False) -> str:
-        """
-        Risolve il modello e popola start_times, makespan e status.
-
-        Parametri
-        ----------
-        time_limit : int
-            Limite di tempo in secondi per il solver (default 300s).
-        verbose : bool
-            Se True mostra il log di ricerca del solver.
-
-        Restituisce
-        -----------
-        status : str
-            Stringa descrittiva dello stato: 'OPTIMAL', 'FEASIBLE',
-            'INFEASIBLE' o 'UNKNOWN'.
-        """
-        model, start, Cmax= self.build_model()
-
-        solver = cpm.CpSolver()
-        solver.parameters.max_time_in_seconds = time_limit
-        solver.parameters.log_search_progress = verbose
-
-        raw_status = solver.solve(model)
-        self._status = raw_status
-
-        if raw_status in (cpm.OPTIMAL, cpm.FEASIBLE):
-            self._start_times = {
-                i: solver.value(start[i]) for i in self._activities
-            }
-            self._makespan = solver.value(Cmax)
-            value = int(solver.objective_value) 
-            bound = int(solver.best_objective_bound)
-            gap = value - bound
-            self._solutions = {
-                "status": solver.status_name(raw_status),
-                "makespan": value,
-                "best_bound": bound,
-                "gap": gap
-            }
-        else:
-            self._solutions = {
-                "status": solver.status_name(raw_status),
-                "makespan": None,
-                "best_bound": None,
-                "gap": None
-            }
-
-        return solver.status_name(raw_status)
+        return model, start, cmax
 
     # ──────────────────────────────────────────────────────────────────────────
     # OUTPUT
@@ -274,14 +221,14 @@ class Model:
         Metodo da chiamare per costruire il modello,
         risolverlo e restituire la soluzione.
         """
-        model, start, Cmax = self.build_model()
+        self.build_model()
         start_time = time.time()
-        status = self.solve()
+        solve(self)
         end_time = time.time()
         schedule = self.get_schedule()
 
         return {"solution": self.solutions, "start": self.start_times, 
-                "Cmax": self.makespan, "schedule": schedule, 
+                "makespan": self.makespan, "schedule": schedule, 
                 "elapsed_time": end_time - start_time}
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -309,7 +256,7 @@ def test_modulo():
     """
     Metodo per testare il modulo quando eseguito. I dati di input sono inventati.
     """
-    num_attività = 50
+    num_attivita = 50
     durate = [
         0,
         3, 5, 2, 6, 4, 7, 3, 5, 6,
@@ -372,28 +319,28 @@ def test_modulo():
     ]
     scadenza = 120
 
-    all_activities = set(range(num_attività))
+    all_activities = set(range(num_attivita))
     successors = {i for (i, j) in precedenze}
-    terminal = all_activities - successors - {num_attività - 1}
+    terminal = all_activities - successors - {num_attivita - 1}
 
     for i in terminal:
-        precedenze.append((i, num_attività - 1))
+        precedenze.append((i, num_attivita - 1))
 
-    modello = Model(num_attività, durate, precedenze, risorse, consumo, scadenza, validate_input=True)
+    modello = Model(num_attivita, durate, precedenze, risorse, consumo, scadenza, validate_input=True)
     modello.build_model()
     start_time = time.time()
-    status = modello.solve()
+    status = solve(modello)
     end_time = time.time()
     schedula = modello.get_schedule()
-    print(f"="*60)
+    print("="*60)
     print(f"Il problema ha avuto esito: {status}")
     print(f"\nSoluzione trovata: {modello.makespan} giorni")
-    print(f"-"*60)
+    print("-"*60)
     print(f"Il solver ha impiegato {end_time-start_time:.6f} secondi")
-    print(f"-"*60)
+    print("-"*60)
     for task in schedula:
         print(task)
-    print(f"="*60)
+    print("="*60)
 
 if __name__ == "__main__":
     test_modulo()
