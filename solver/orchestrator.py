@@ -213,8 +213,8 @@ class SolverOrchestrator:
         """
         new_precedences = []
 
-        has_pred = {j: False for j in range(self._n)}
-        has_succ = {i: False for i in range(self._n)}
+        has_pred = dict.fromkeys(range(self._n), False)
+        has_succ = dict.fromkeys(range(self._n), False)
 
         if rcpsp_max: 
             for (i, j, min_lag, max_lag) in precedences:
@@ -350,7 +350,7 @@ class SolverOrchestrator:
             # Lancio euristiche
             if diff == "easy":
                 # In questo caso una singola run basta
-                all_results, best_solution, all_specs = self._run_sgs(
+                all_results, best_solution, _ = self._run_sgs(
                     rcpsp_max=rcpsp_max,
                     mode="single_start",
                     rule=priority_rule,
@@ -360,7 +360,7 @@ class SolverOrchestrator:
                          "results": all_results, "best": best_solution}
             elif diff == "medium":
                 # In questo caso meglio il multistart soft
-                all_results, best_solution, all_specs = self._run_sgs(
+                all_results, best_solution, _ = self._run_sgs(
                     rcpsp_max=rcpsp_max,
                     mode="multi_start",
                     rule=None,
@@ -371,7 +371,7 @@ class SolverOrchestrator:
                          "results": all_results, "best": best_solution}
             else:
                 # In questo caso eseguo un multistart hard
-                all_results, best_solution, all_specs = self._run_sgs(
+                all_results, best_solution, _ = self._run_sgs(
                     rcpsp_max=rcpsp_max,
                     mode="multi_start",
                     rule=None,
@@ -388,7 +388,7 @@ class SolverOrchestrator:
                 solution = self._run_exact_model(rcpsp_max=rcpsp_max)
                 return {"type": "exact", "problem_difficulty": diff, "results": None, "best": solution}
             except Exception:
-                all_results, best_solution, all_specs = self._run_sgs(rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500, top_k=top_k)
+                all_results, best_solution, _ = self._run_sgs(rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500, top_k=top_k)
                 return {"type": "heuristic_fallback", "problem_difficulty": diff, "results": all_results, "best": best_solution}
 
     def _calcola_diff(self):
@@ -534,18 +534,17 @@ class SolverOrchestrator:
         sgs = self._build_sgs(rcpsp_max)
 
         if rcpsp_max:
+            config ={"time_weight": self._time_weight, "resource_weight": self._resource_weight, 
+                     "priority_weight": self._priority_weight, "tardiness_weight": self._tardiness_weight, 
+                     "limit_lookahead": self._limit_lookahead}
             precedences_rcpsp_max = self._precedences
             precedences_rcpsp = [(i, j) for (i, j, _, _) in precedences_rcpsp_max]
             if mode == "single_start":
                 return best_solution_rcpsp_max(sgs, self._n, self._durations, precedences_rcpsp=precedences_rcpsp, precedences_rcpsp_max=precedences_rcpsp_max,
-                                               resources=self._resources, consumption=self._consumption, horizon=self._horizon, time_weight=self._time_weight,
-                                               resource_weight=self._resource_weight, priority_weight=self._priority_weight, tardiness_weight=self._tardiness_weight,
-                                               limit_lookahead=self._limit_lookahead, n_runs=1, regola=rule, top_k=top_k)
+                                               resources=self._resources, consumption=self._consumption, horizon=self._horizon, **config, n_runs=1, regola=rule, top_k=top_k)
             else:  # multi_start
                 return best_solution_rcpsp_max(sgs, self._n, self._durations, precedences_rcpsp=precedences_rcpsp, precedences_rcpsp_max=precedences_rcpsp_max,
-                                               resources=self._resources, consumption=self._consumption, horizon=self._horizon, time_weight=self._time_weight,
-                                               resource_weight=self._resource_weight, priority_weight=self._priority_weight, tardiness_weight=self._tardiness_weight,
-                                               limit_lookahead=self._limit_lookahead, n_runs=n_runs, regola=rule, top_k=top_k)
+                                               resources=self._resources, consumption=self._consumption, horizon=self._horizon, **config, n_runs=n_runs, regola=rule, top_k=top_k)
         else:
             if mode == "single_start":
                 return best_solution_rcpsp(sgs, self._n, self._durations, self._precedences, self._resources,

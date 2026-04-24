@@ -242,7 +242,6 @@ class SGSEngine:
 
                 scheduled.add(j_fb)
                 self._penalty_ser += best_cost
-                continue
                 
         # Attività dummy finale
         start_times[last] = max(start_times[i] + self._durations[i] for i in start_times)
@@ -307,7 +306,7 @@ class SGSEngine:
         while len(scheduled) < self._n - 1:
 
             # Rimuovo le attività terminate al tempo t
-            finished_now = [j for j in list(ongoing) if finish_times[j] <= t]
+            finished_now = [j for j in ongoing if finish_times[j] <= t]
             for j in finished_now:
                 for r in range(len(self._resources)):
                     current_usage[r] -= self._consumption[j][r]
@@ -551,22 +550,25 @@ def test_modulo():
     import random
 
     # Input 
-    n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_instance()
+    n, _, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_instance()
     
     sgs = SGSEngine(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates=release_dates, due_dates=due_dates, validate_input=True)
 
     priority_list = wrapper_rule("spt", n=n, durations=durations, precedences_rcpsp_max=precedences_rcpsp_max, resources=resources, consumption=consumption,
                                 horizon=horizon)
     
+    SERIAL = "Testing sgs_engine seriale:"
+    PARALLEL = "Testing sgs_engine parallelo:"
+
     print("REGOLA SPT (SHORTEST PROCESS TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(SERIAL)
     try:
         print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         raise e
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(PARALLEL)
     try:
         print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
@@ -579,13 +581,13 @@ def test_modulo():
     
     print("REGOLA MTS (MOST TOTAL SUCCESSORS)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(SERIAL)
     try:
         print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(PARALLEL)
     try:
         print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
@@ -597,13 +599,13 @@ def test_modulo():
     
     print("REGOLA GRD (GREATEST RESOURCES DEMAND)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(SERIAL)
     try:
         print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(PARALLEL)
     try:
         print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
@@ -616,13 +618,13 @@ def test_modulo():
     
     print("REGOLA LFT (LAST FINISHING TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(SERIAL)
     try:
         print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(PARALLEL)
     print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     print("="*60)
     print("\n")
@@ -632,13 +634,13 @@ def test_modulo():
     
     print("REGOLA LST (LAST STARTING TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(SERIAL)
     try:
         print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(PARALLEL)
     print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     print("="*60)
     print("\n")
@@ -648,13 +650,13 @@ def test_modulo():
     
     print("REGOLA MSLK (MINIMUM SLACK TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(SERIAL)
     try:
         print(sgs.serial(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
         print(e)
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(PARALLEL)
     try:
         print(sgs.parallel(priority_list, time_weight=1, resource_weight=1, priority_weight=0.5, tardiness_weight=1, limit_lookahead=5))
     except Exception as e:
@@ -670,7 +672,7 @@ def test_modulo():
     print("Esecuzione multitest seriale e parallelo per ciascuna regola.")
     print(f"Ogni funzione verra eseguita {N} volte per regola.")
 
-    risultati, best_solution_overall, specs = get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, N)
+    risultati, best_solution_overall, _ = get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, N)
 
     for k, r in risultati.items():
         print(f"\n TEST REGOLA {k.upper()}")

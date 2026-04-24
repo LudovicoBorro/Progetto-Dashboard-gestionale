@@ -203,7 +203,7 @@ class Model:
         start : dict[int, cp_model.IntVar]
             Variabili di inizio per ogni attività, utili per leggere
             la soluzione dopo la risoluzione.
-        Cmax: int
+        cmax: int
             Makespan
         """
         model = cpm.CpModel()
@@ -235,8 +235,8 @@ class Model:
             for i in self._activities
         }
 
-        # Creo la variabile Cmax
-        Cmax = model.new_int_var(0, self._horizon, "makespan")
+        # Creo la variabile cmax
+        cmax = model.new_int_var(0, self._horizon, "makespan")
 
         # ── Attività fittizia iniziale fissata a 0 ────────────────────────────
         model.add(start[0] == 0)
@@ -268,9 +268,9 @@ class Model:
             if intervals_k:
                 model.add_cumulative(intervals_k, demands_k, self._resources[k])
 
-        # ── Vincolo 3: definizione del makespan Cmax ──────────────────────────
+        # ── Vincolo 3: definizione del makespan cmax ──────────────────────────
         for i in self._activities:
-            model.add(Cmax >= start[i] + self._durations[i])
+            model.add(cmax >= start[i] + self._durations[i])
 
         # ── Vincolo 4: eventuali release_dates ────────────────────────────────
         if self._release_dates is not None:
@@ -285,11 +285,11 @@ class Model:
                     model.add(start[i] + self._durations[i] <=  self._due_dates[i])
 
         # ── Obiettivo: minimizza il makespan ──────────────────────────────────
-        model.minimize(Cmax)
+        model.minimize(cmax)
 
-        return model, start, Cmax
+        return model, start, cmax
     
-    # ──────────────────────────────────────────────────────────────────────────
+
     # OUTPUT
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -332,7 +332,7 @@ class Model:
                 "makespan": self.makespan, "schedule": schedule, 
                 "elapsed_time": end_time - start_time}
     
-    # ──────────────────────────────────────────────────────────────────────────
+
     # PROPERTIES
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -360,7 +360,7 @@ def test_modulo():
     I dati sono generati artificialmente.
     """
 
-    num_attività = 50
+    num_attivita = 50
 
     # ── Durate ───────────────────────────────────────────────
     durate = [
@@ -443,16 +443,16 @@ def test_modulo():
     horizon = 120
 
     # ── Collegamento automatico al nodo finale ───────────────
-    all_activities = set(range(num_attività))
+    all_activities = set(range(num_attivita))
     successors = {i for (i, _, _, _) in precedenze}
-    terminal = all_activities - successors - {num_attività - 1}
+    terminal = all_activities - successors - {num_attivita - 1}
 
     for i in terminal:
-        precedenze.append((i, num_attività - 1, durate[i], None))
+        precedenze.append((i, num_attivita - 1, durate[i], None))
 
     # ── Release / Due dates (opzionali) ──────────────────────
-    release_dates = [0] * num_attività
-    due_dates = [None] * num_attività
+    release_dates = [0] * num_attivita
+    due_dates = [None] * num_attivita
 
     # esempio: vincolo reale
     release_dates[10] = 5
@@ -460,7 +460,7 @@ def test_modulo():
 
     # ── Creazione modello ───────────────────────────────────
     modello = Model(
-        n=num_attività,
+        n=num_attivita,
         durations=durate,
         resources=risorse,
         consumption=consumo,
