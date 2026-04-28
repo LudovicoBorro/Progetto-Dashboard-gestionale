@@ -1,6 +1,6 @@
 from core.heuristics.priority_rules import wrapper_rule
 
-def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, config=None):
+def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_rcpsp_max, resources, consumption, horizon, n_runs, config=None):
     """
     Funzione che calcola la soluzione migliore in assoluto eseguendo n_runs volte
     le funzioni seriale e parallela per ciascuna regola di priorità.
@@ -21,7 +21,6 @@ def get_best_solution_overall(sgs, n, durations, precedences_rcpsp, precedences_
     priority_weight = config.get('priority_weight', 0.5)
     tardiness_weight = config.get('tardiness_weight', 1)
     limit_lookahead = config.get('limit_lookahead', 5)
-    n_runs = config.get('n_runs', 100)
     regola = config.get('regola', None)
     list_regole = ['spt', 'mts', 'grd', 'lft_rcpsp_max', 'lst_rcpsp_max', 'mslk_rcpsp_max']
 

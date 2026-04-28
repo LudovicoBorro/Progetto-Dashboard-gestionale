@@ -300,6 +300,10 @@ class Model:
 
         Ogni elemento ha le chiavi: activity, start, end, duration.
         """
+        if self._status != cpm.OPTIMAL and self._status != cpm.FEASIBLE:
+            raise RuntimeError(
+                "Il modello non ha trovato una soluzione ottimale o fattibile!"
+            )
         if self._start_times is None:
             raise RuntimeError(
                 "Il modello non è ancora stato risolto. Chiamare solve() prima."

@@ -243,13 +243,16 @@ def test_modulo():
                                 horizon=horizon)
     
     sgs = SGSEngine(n, durations, precedences_rcpsp, resources, consumption, horizon, validate_input=True)
+
+    ENGINE_SERIAL = "Testing sgs_engine seriale:"
+    ENGINE_PARALLEL = "Testing sgs_engine parallelo:"
     
     print("REGOLA SPT (SHORTEST PROCESS TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(ENGINE_SERIAL)
     print(sgs.serial(priority_list))
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(ENGINE_PARALLEL)
     print(sgs.parallel(priority_list))
     print("="*60)
     print("\n")
@@ -259,10 +262,10 @@ def test_modulo():
     
     print("REGOLA MTS (MOST TOTAL SUCCESSORS)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(ENGINE_SERIAL)
     print(sgs.serial(priority_list))
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(ENGINE_PARALLEL)
     print(sgs.parallel(priority_list))
     print("="*60)
     print("\n")
@@ -272,10 +275,10 @@ def test_modulo():
     
     print("REGOLA GRD (GREATEST RESOURCES DEMAND)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(ENGINE_SERIAL)
     print(sgs.serial(priority_list))
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(ENGINE_PARALLEL)
     print(sgs.parallel(priority_list))
     print("="*60)
     print("\n")
@@ -285,10 +288,10 @@ def test_modulo():
     
     print("REGOLA LFT (LAST FINISHING TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(ENGINE_SERIAL)
     print(sgs.serial(priority_list))
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(ENGINE_PARALLEL)
     print(sgs.parallel(priority_list))
     print("="*60)
     print("\n")
@@ -298,10 +301,10 @@ def test_modulo():
     
     print("REGOLA LST (LAST STARTING TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(ENGINE_SERIAL)
     print(sgs.serial(priority_list))
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(ENGINE_PARALLEL)
     print(sgs.parallel(priority_list))
     print("="*60)
     print("\n")
@@ -311,10 +314,10 @@ def test_modulo():
     
     print("REGOLA MSLK (MINIMUM SLACK TIME)")
     print("="*60)
-    print("Testing sgs_engine seriale:")
+    print(ENGINE_SERIAL)
     print(sgs.serial(priority_list))
     print("-"*60)
-    print("Testing sgs_engine parallelo:")
+    print(ENGINE_PARALLEL)
     print(sgs.parallel(priority_list))
     print("="*60)
     print("\n")

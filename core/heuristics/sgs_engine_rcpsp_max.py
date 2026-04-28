@@ -92,6 +92,7 @@ class SGSEngine:
         finish_times = {}
         scheduled = set()
         last = self._n - 1
+        penalties = {}
 
         # Orizzonte temporale massimo
         horizon = self._horizon
@@ -214,6 +215,7 @@ class SGSEngine:
 
                 best_cost = float("inf")
                 best_choice = None
+                best_penalties = None
 
                 if len(candidates) == 0:
                     raise RuntimeError("Fallback impossibile: nessun candidato disponibile")
@@ -226,15 +228,17 @@ class SGSEngine:
                         start = max(t, es_j)
                         end = start + limit_lookahead
                     for t_cand in range(start, end):
-                        cost, _ = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, consumption_profile, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
+                        cost, penalty = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, consumption_profile, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
                         if cost < best_cost:
                             best_cost = cost
                             best_choice = (j, t_cand)
+                            best_penalties = penalty
                 
                 j_fb = best_choice[0]
                 t = best_choice[1]
                 start_times[j_fb] = t
                 finish_times[j_fb] = t + self._durations[j_fb]
+                penalties[j_fb] = best_penalties
 
                 for tau in range(t, t + self._durations[j_fb]):
                     for r in range(len(self._resources)):
@@ -250,7 +254,7 @@ class SGSEngine:
         schedule = []
         for a, t in start_times.items():
             schedule.append(
-                {"activity": a, "start": t, "end": finish_times[a]}
+                {"activity": a, "start": t, "end": finish_times[a], "penalty": penalties.get(a, 0)}
             )
 
         return sorted(schedule, key=lambda x: x["start"])
@@ -293,6 +297,7 @@ class SGSEngine:
         finish_times = {}
         scheduled = set()
         ongoing = set()
+        penalties = {}
 
         current_usage = np.zeros(len(self._resources), dtype=int)
 
@@ -387,6 +392,7 @@ class SGSEngine:
             if not scheduled_this_step:
                 best_cost = float("inf")
                 best_choice = None
+                best_penalties = None
 
                 if len(candidates_global) == 0:
                     raise RuntimeError("Fallback impossibile: nessuna attività eleggibile disponibile")
@@ -402,10 +408,11 @@ class SGSEngine:
                         start = max(t, es_j)
                         end = start + limit_lookahead
                     for t_cand in range(start, end):
-                        cost, _ = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, current_usage, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
+                        cost, penalty = self._compute_cost(j, t_cand, es_j, ls_j, priority_index, current_usage, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight)
                         if cost < best_cost:
                             best_cost = cost
                             best_choice = (j, t_cand)
+                            best_penalties = penalty
 
                 if best_choice is None:
                     if ongoing:
@@ -421,6 +428,7 @@ class SGSEngine:
 
                 start_times[j_fb] = t
                 finish_times[j_fb] = t + self._durations[j_fb]
+                penalties[j_fb] = best_penalties
                 for r in range(len(self._resources)):
                     current_usage[r] += self._consumption[j_fb][r]
                 scheduled.add(j_fb)
@@ -454,7 +462,7 @@ class SGSEngine:
         schedule = []
         for a, t in start_times.items():
             schedule.append(
-                {"activity": a, "start": t, "end": finish_times[a]}
+                {"activity": a, "start": t, "end": finish_times[a], "penalty": penalties.get(a, 0)}
             )
 
         return sorted(schedule, key=lambda x: x["start"])
@@ -532,7 +540,7 @@ class SGSEngine:
             tardiness_penalty = tardiness * tardiness_weight
             cost += tardiness_penalty
 
-        penalties = {"time_penalty": time_penalty, "overuse_penalty": overuse_penalty, "priority_penalty": priority_penalty, "tardiness_penalty": tardiness_penalty}
+        penalties = {"time_penalty": float(time_penalty), "overuse_penalty": float(overuse_penalty), "priority_penalty": float(priority_penalty), "tardiness_penalty": float(tardiness_penalty)}
         return cost, penalties
     
     @property
