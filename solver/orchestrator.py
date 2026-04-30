@@ -20,6 +20,8 @@ soluzione lanciando più volte il modello scelto.
 from solver.preprocessing import _pre_processing_rcpsp_max, _pre_processing_rcpsp
 from solver.builders import _run_sgs, _run_exact_model
 from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
+from solver.branch_and_bound import BranchAndBoundSolver
+from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
 
 class SolverOrchestrator:
 
@@ -94,8 +96,36 @@ class SolverOrchestrator:
                 - 'best': Soluzione migliore trovata
         """
         preprocessing = False
+
         if has_intervals:
-            pass
+            config = {
+                "n": n,
+                "durations": durations,
+                "precedences": precedences,
+                "resources": resources,
+                "consumption": consumption,
+                "horizon": horizon,
+                "release_dates": release_dates,
+                "due_dates": due_dates,
+                "top_k": top_k,
+                "time_weight": time_weight,
+                "resource_weight": resource_weight,
+                "priority_weight": priority_weight,
+                "tardiness_weight": tardiness_weight,
+                "limit_lookahead": limit_lookahead,
+                "instan_sol": instant_sol,
+                "priority_rule": priority_rule,
+                "rcpsp_max": rcpsp_max
+            }
+            b_and_b = BranchAndBoundSolver(self, **config)
+            result = b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
+            if result is None:
+                best_solution = b_and_b.best_solution()
+                if best_solution is None:
+                    raise RuntimeError("Il branch and bound non ha trovato una soluzione fattibile.")
+                return best_solution
+            else:
+                return result
 
         if rcpsp_max:
             try:
@@ -330,3 +360,38 @@ if __name__ == '__main__':
     else:
         print(f"Soluzione migliore: {soluzione.get("best")}")
     print("=======================================================")
+
+
+    # Test per Branch and Bound
+
+    n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_raw_instance_with_intervals()
+    top_k = 5
+
+    soluzione = so.choose_model(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates, instant_sol=True, rcpsp_max=True, top_k=top_k, has_intervals=True)
+    
+    type_rcpsp_max = False
+    if soluzione.solution.best.get("top_k_score") is not None:
+        type_rcpsp_max = True
+    if not isinstance(soluzione, BestSolutionBAndB):
+        print("Errore! Branch and Bound non è stato correttamente chiamato!")
+    else:
+        print("Branch and Bound chiamato correttamente!\n")
+        print("=======================================================")
+        print(f"Metodo utilizzato: {soluzione.solution.type}\n")
+        print(f"Difficoltà del problema stimata: {soluzione.solution.problem_difficulty}\n")
+        print(f"Risultati: {soluzione.solution.results}\n")
+        print(f"Soluzione miglire: {soluzione.solution.best.get("best")}")
+        if type_rcpsp_max:
+            print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
+            for elem in soluzione.solution.best.get("top_k_score")[1:top_k]:
+                print(elem)
+            print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
+            for elem in soluzione.solution.best.get("top_k_makespan")[1:top_k]:
+                print(elem)
+        else:
+            print(f"\nAltre top {top_k-1} soluzioni:")
+            for elem in soluzione.solution.best.get("top_k_makespan")[1:top_k]:
+                print(elem)
+        print("\n")
+        print(f"La configurazione migliore presa in considerazione è: {soluzione.config.model_dump()}")
+        print("=======================================================")

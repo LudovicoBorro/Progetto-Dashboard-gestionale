@@ -10,24 +10,34 @@ def validate_inputs(classe):
     il modello. Rileva a priori le situazioni di inammissibilità strutturale
     evitando di avviare il solver su istanze non risolvibili.
     """
-    minimum_checks(classe)
+    activities = _get(classe, "activities")
+    durations = _get(classe, "durations")
+    precedences = _get(classe, "precedences")
+    release_dates = _get(classe, "release_dates")
+    due_dates = _get(classe, "due_dates")
+    n = _get(classe, "n")
+    resources = _get(classe, "resources")
+    consumption = _get(classe ,"consumption")
+    horizon = _get(classe, "horizon")
+    
+    minimum_checks(n, resources, durations, consumption, activities, horizon)
     
     # ── Validazione su release_dates e due_dates ─────────────────────────
-    if classe._release_dates is not None and classe._due_dates is not None:
-        for i in classe._activities:
-            if classe._release_dates[i] is not None and classe._due_dates[i] is not None:
-                if classe._release_dates[i] > classe._due_dates[i] - classe._durations[i]:
+    if release_dates is not None and due_dates is not None:
+        for i in activities:
+            if release_dates[i] is not None and due_dates[i] is not None:
+                if release_dates[i] > due_dates[i] - durations[i]:
                     raise ValueError(
-                        f"{classe._release_dates[i]} non valida per l'attività {i}, "
+                        f"{release_dates[i]} non valida per l'attività {i}, "
                         f"non garantisce che la data di scadenza sia rispettata: "
                         f"l'attività {i} non potrà mai essere schedulata."
                     )
     
     # ── Validità degli archi di precedenza ───────────────────────────────
-    valid_ids = set(classe._activities)
+    valid_ids = set(activities)
     seen_edges = set()
 
-    for idx, (i, j, min_lag, max_lag) in enumerate(classe._precedences):
+    for idx, (i, j, min_lag, max_lag) in enumerate(precedences):
 
         # ── Indici validi ─────────────────────────────
         if i not in valid_ids or j not in valid_ids:
@@ -47,7 +57,7 @@ def validate_inputs(classe):
                 f"Precedenza [{idx}]: attività 0 non può essere successore."
             )
 
-        if i == classe._n - 1:
+        if i == n - 1:
             raise ValueError(
                 f"Precedenza [{idx}]: attività finale non può essere predecessore."
             )
@@ -72,13 +82,13 @@ def validate_inputs(classe):
         seen_edges.add((i, j))
 
     # ── Cicli nel grafo delle precedenze ─────────────────────────────────
-    _check_time_feasibility(classe._precedences, classe._n)
+    _check_time_feasibility(precedences, n)
     
     # ── Release e due date validation ────────────────────────────────────
-    if classe._release_dates is not None and len(classe._release_dates) != classe._n:
+    if release_dates is not None and len(release_dates) != n:
         raise ValueError("release_dates dimensione errata")
 
-    if classe._due_dates is not None and len(classe._due_dates) != classe._n:
+    if due_dates is not None and len(due_dates) != n:
         raise ValueError("due_dates dimensione errata")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -118,3 +128,10 @@ def _check_time_feasibility(precedences, n):
     raise ValueError(
         "Vincoli temporali inconsistenti (positive cycle nei time-lag)."
     )
+
+def _get(classe, name):
+    # prova prima con underscore
+    if hasattr(classe, f"_{name}"):
+        return getattr(classe, f"_{name}")
+    # fallback senza underscore
+    return getattr(classe, name)

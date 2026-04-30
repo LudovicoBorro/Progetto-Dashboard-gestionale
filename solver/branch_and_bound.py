@@ -1,5 +1,7 @@
 from solver.dataclasses.base_data_b_and_b import BaseDataBAndB
 from solver.dataclasses.best_config_b_and_b import BestConfigBAndB
+from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
+from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
 from solver.preprocessing import _pre_processing_rcpsp_max
 import networkx as nx
 import math
@@ -11,6 +13,14 @@ class BranchAndBoundSolver:
         self.base_data = BaseDataBAndB(**kwargs)
         self._best_ub = None
         self._best_config = None
+        self._best_solution_orchestrator = None
+        self.top_k = kwargs.get("top_k", 5)
+        self.time_weight = kwargs.get("time_weight", 1)
+        self.resource_weight = kwargs.get("resource_weight", 1)
+        self.priority_weight = kwargs.get("priority_weight", 1)
+        self.tardiness_weight = kwargs.get("tardiness_weight", 1)
+        self.limit_lookahead = kwargs.get("limit_lookahead", 5)
+        self.priority_rule = kwargs.get("priority_rule", "spt")
         self._visited = set()
 
     def esplora_soluzioni(self, instant_sol, rcpsp_max):
@@ -36,22 +46,20 @@ class BranchAndBoundSolver:
         if not rcpsp_max:
             durations_fixed = self._fix_to_min(self.base_data.durations)
             resources_fixed = self._fix_to_max(self.base_data.resources)
-            state = self._save_state()
             result = self.orch.choose_model(n=self.base_data.n, durations=durations_fixed, precedences=self.base_data.precedences, resources=resources_fixed,
-                                    consumption=self.base_data.consumption, horizon=self.base_data.horizon, instant_sol=instant_sol, rcpsp_max=False)
-            self._restore_state(state)
-            return result 
+                                    consumption=self.base_data.consumption, horizon=self.base_data.horizon, top_k=self.top_k, instant_sol=instant_sol, priority_rule=self.priority_rule, rcpsp_max=False)
+            return BestSolutionBAndB(BestConfigBAndB(durations_fixed, resources_fixed, None, None), BestSolutionBAndB(**result)) 
         else:
             only_durations = any(isinstance(d, tuple) for d in self.base_data.durations) and not any(isinstance(r, tuple) for r in self.base_data.resources) and not any(isinstance(rd, tuple) for rd in self.base_data.release_dates) and not any(isinstance(dd, tuple) for dd in self.base_data.due_dates)
             only_durations_resources = any(isinstance(d, tuple) for d in self.base_data.durations) and any(isinstance(r, tuple) for r in self.base_data.resources) and not any(isinstance(rd, tuple) for rd in self.base_data.release_dates) and not any(isinstance(dd, tuple) for dd in self.base_data.due_dates)
             if only_durations or only_durations_resources:
                 durations_fixed = self._fix_to_min(self.base_data.durations)
                 resources_fixed = self._fix_to_max(self.base_data.resources)
-                state = self._save_state()
                 result = self.orch.choose_model(n=self.base_data.n, durations=durations_fixed, precedences=self.base_data.precedences, resources=resources_fixed,
-                                        consumption=self.base_data.consumption, horizon=self.base_data.horizon, instant_sol=instant_sol, rcpsp_max=True)
-                self._restore_state(state)
-                return result
+                                        consumption=self.base_data.consumption, horizon=self.base_data.horizon, top_k=self.top_k, time_weight=self.time_weight, 
+                                        resource_weight=self.resource_weight, priority_weight=self.priority_weight, tardiness_weight=self.tardiness_weight, 
+                                        limit_lookahead=self.limit_lookahead, instant_sol=instant_sol, priority_rule=self.priority_rule, rcpsp_max=True)
+                return BestSolutionBAndB(BestConfigBAndB(durations_fixed, resources_fixed, self.base_data.release_dates, self.base_data.due_dates), BestSolutionBAndB(**result))
             else:
                 # Inizializzo le durate a min, le risorse a max, le release date a min e le due date a max, e calcolo LB iniziale e UB iniziale
                 durations_fixed = self._fix_to_min(self.base_data.durations)
@@ -61,8 +69,22 @@ class BranchAndBoundSolver:
                 self._best_ub = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
                 self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
                 self._branch(self._best_config.model_dump())
+                return None
 
     def _branch(self, config):
+
+        # Controllo se la configurazione è già stata visitata
+        key = (
+            tuple(config["durations"]),
+            tuple(config["resources"]),
+            tuple(config["release_dates"]),
+            tuple(config["due_dates"])
+        )
+
+        if key in self._visited:
+            return
+        
+        self._visited.add(key)
 
         # ---------- LB ----------
 
@@ -89,31 +111,21 @@ class BranchAndBoundSolver:
         # pruning
         if LB >= self._best_ub:
             return
-        
-        # Controllo se la configurazione è già stata visitata
-        key = (
-            tuple(config["durations"]),
-            tuple(config["resources"]),
-            tuple(config["release_dates"]),
-            tuple(config["due_dates"])
-        )
-
-        if key in self._visited:
-            return
-        
-        self._visited.add(key)
 
         # ---------- UB ----------
-        UB = self._compute_ub(
+        sol = self._compute_ub(
             config["durations"],
             config["resources"],
             config["release_dates"],
             config["due_dates"]
         )
 
+        UB = sol.get("best").get("best").get("makespan", float("inf")) if isinstance(sol.get("best").get("best"), dict) else float("inf")
+
         if UB < self._best_ub:
             self._best_ub = UB
             self._best_config = copy.deepcopy(config)
+            self._best_solution_orchestrator = sol
 
         # ---------- branching ----------
         var = self._select_branch_variable(config)
@@ -233,19 +245,22 @@ class BranchAndBoundSolver:
         return math.ceil(max(lb_values))
 
     def _compute_ub(self, durations, resources, release_dates, due_dates):
-        state = self._save_state()
 
-        result = self.orch.choose_model(n=self.base_data.n, durations=durations, precedences=self.base_data.precedences, resources=resources,
-                                    consumption=self.base_data.consumption, horizon=self.base_data.horizon, release_dates=release_dates, due_dates=due_dates, instant_sol=True, rcpsp_max=True)
+        return self.orch.choose_model(n=self.base_data.n, durations=durations, precedences=self.base_data.precedences, resources=resources,
+                                    consumption=self.base_data.consumption, horizon=self.base_data.horizon, release_dates=release_dates, 
+                                    due_dates=due_dates, top_k=self.top_k, time_weight=self.time_weight, resource_weight=self.resource_weight, priority_weight=self.priority_weight, 
+                                    tardiness_weight=self.tardiness_weight, limit_lookahead=self.limit_lookahead, instant_sol=True, priority_rule=self.priority_rule, rcpsp_max=True)
 
-        self._restore_state(state)
-        best = result.get("best").get("best")
-
-        if best is None:
-            return float("inf")
-
-        if isinstance(best, dict):
-            return best.get("makespan", float("inf"))
-
-        # fallback
-        return float("inf")
+    
+    @property
+    def best_ub(self):
+        return self._best_ub
+    
+    @property
+    def best_config(self):
+        return self._best_config
+    
+    def best_solution(self):
+        if self._best_ub is None or self._best_config is None:
+            return None
+        return BestSolutionBAndB(config=BestConfigBAndB(**self._best_config), solution=SoluzioneOrchestrator(**self._best_solution_orchestrator))
