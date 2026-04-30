@@ -19,6 +19,7 @@ soluzione lanciando più volte il modello scelto.
 """
 from solver.preprocessing import _pre_processing_rcpsp_max, _pre_processing_rcpsp
 from solver.builders import _run_sgs, _run_exact_model
+from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
 
 class SolverOrchestrator:
 
@@ -54,9 +55,9 @@ class SolverOrchestrator:
     # SISTEMA DECISIONALE
     #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-    def choose_model(self, n: int, durations: list[int], precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]], resources: list[int], 
-                     consumption: list[list[int]], horizon: int, release_dates: list[int] = None, due_dates: list[int] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
-                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False):
+    def choose_model(self, n: int, durations: list[int | tuple[int, int]], precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]], resources: list[int | tuple[int, int]], 
+                     consumption: list[list[int]], horizon: int, release_dates: list[int | tuple[int, int]] = None, due_dates: list[int | tuple[int, int]] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
+                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False, has_intervals: bool = False):
         """
         Esegue il preprocessing dei dati e sceglie il modello più appropriato (esatto o euristico)
         in base ai parametri ricevuti dall'utente e alla difficoltà stimata dell'istanza.
@@ -82,6 +83,8 @@ class SolverOrchestrator:
             instant_sol: Se True, esegue euristici veloci; se False, cerca soluzione esatta
             priority_rule: Regola di priorità da usare negli euristici (opzionale)
             rcpsp_max: True per risolvere RCPSP_MAX, False per RCPSP
+            has_intervals: Indica se le durate, risorse, date di rilascio o date di scadenza sono fornite come intervalli 
+            invece che come valori fissi (in questo caso, viene eseguita una ricerca più ampia per trovare la soluzione migliore)
             
         Returns:
             Dizionario con chiavi:
@@ -91,21 +94,35 @@ class SolverOrchestrator:
                 - 'best': Soluzione migliore trovata
         """
         preprocessing = False
+        if has_intervals:
+            pass
+
         if rcpsp_max:
             try:
-                _pre_processing_rcpsp_max(self, n, durations, precedences, resources, consumption, horizon, release_dates, due_dates)
+                processed = _pre_processing_rcpsp_max(n, durations, precedences, resources, consumption, horizon, release_dates, due_dates)
                 preprocessing = True
             except Exception as e:
                 raise e
         else:
             try:
-                _pre_processing_rcpsp(self, n, durations, precedences, resources, consumption, horizon)
+                processed = _pre_processing_rcpsp(n, durations, precedences, resources, consumption, horizon)
                 preprocessing = True
             except Exception as e:
                 raise e
 
         if not preprocessing:
             raise RuntimeError("Attenzione! Devi elaborare i dati con la funzione di pre processing adatta prima di scegliere il modello.")
+        
+        self._n = processed.n
+        self._activities = processed.activities
+        self._durations = processed.durations
+        self._precedences = processed.precedences
+        self._resources = processed.resources
+        self._consumption = processed.consumption
+        self._horizon = processed.horizon
+        if rcpsp_max:
+            self._release_dates = processed.release_dates
+            self._due_dates = processed.due_dates
         
         diff = self._calcola_diff()
 
@@ -129,8 +146,7 @@ class SolverOrchestrator:
                     rule=priority_rule,
                     top_k=top_k,
                 )
-                return {"type": "heuristic_single_start", "problem_difficulty": diff,
-                         "results": all_results, "best": best_solution}
+                return SoluzioneOrchestrator(type="heuristic_single_start", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
             elif diff == "medium":
                 # In questo caso meglio il multistart soft
                 all_results, best_solution, _ = _run_sgs(
@@ -141,8 +157,7 @@ class SolverOrchestrator:
                     n_runs=50,
                     top_k=top_k,
                 )
-                return {"type": "heuristic_multi_start", "problem_difficulty": diff,
-                         "results": all_results, "best": best_solution}
+                return SoluzioneOrchestrator(type="heuristic_multi_start_soft", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
             else:
                 # In questo caso eseguo un multistart hard
                 all_results, best_solution, _ = _run_sgs(
@@ -153,20 +168,19 @@ class SolverOrchestrator:
                     n_runs=500,
                     top_k=top_k,
                 )
-                return {"type": "heuristic_multi_start", "problem_difficulty": diff,
-                         "results": all_results, "best": best_solution}
+                return SoluzioneOrchestrator(type="heuristic_multi_start_hard", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
         # CASO 2
         # Soluzione esatta o normale richiesta
         else:
             # Lancio metodo esatto
             try:
                 solution = _run_exact_model(self, rcpsp_max=rcpsp_max)
-                return {"type": "exact", "problem_difficulty": diff, "results": None, "best": solution}
+                return SoluzioneOrchestrator(type="exact", problem_difficulty=diff, results=None, best=solution).model_dump()
             except Exception as e:
                 print(e)
                 print("Il modello esatto non ha trovato una soluzione ottimale o fattibile, eseguo fallback con euristiche...")
                 all_results, best_solution, _ = _run_sgs(self, rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500, top_k=top_k)
-                return {"type": "heuristic_fallback", "problem_difficulty": diff, "results": all_results, "best": best_solution}
+                return SoluzioneOrchestrator(type="heuristic_fallback", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
 
     def _calcola_diff(self):
         """

@@ -2,32 +2,32 @@
 Funzione per validare gli input di un istanza rcpsp/max.
 """
 
-from utils.validators import minimum_checks
+from utils.validators.minimum_checks import minimum_checks
 
-def validate_inputs(self):
+def validate_inputs(classe):
     """
     Verifica la coerenza e ammissibilità degli input prima di costruire
     il modello. Rileva a priori le situazioni di inammissibilità strutturale
     evitando di avviare il solver su istanze non risolvibili.
     """
-    minimum_checks(self)
+    minimum_checks(classe)
     
     # ── Validazione su release_dates e due_dates ─────────────────────────
-    if self._release_dates is not None and self._due_dates is not None:
-        for i in self._activities:
-            if self._release_dates[i] is not None and self._due_dates[i] is not None:
-                if self._release_dates[i] > self._due_dates[i] - self._durations[i]:
+    if classe._release_dates is not None and classe._due_dates is not None:
+        for i in classe._activities:
+            if classe._release_dates[i] is not None and classe._due_dates[i] is not None:
+                if classe._release_dates[i] > classe._due_dates[i] - classe._durations[i]:
                     raise ValueError(
-                        f"{self._release_dates[i]} non valida per l'attività {i}, "
+                        f"{classe._release_dates[i]} non valida per l'attività {i}, "
                         f"non garantisce che la data di scadenza sia rispettata: "
                         f"l'attività {i} non potrà mai essere schedulata."
                     )
     
     # ── Validità degli archi di precedenza ───────────────────────────────
-    valid_ids = set(self._activities)
+    valid_ids = set(classe._activities)
     seen_edges = set()
 
-    for idx, (i, j, min_lag, max_lag) in enumerate(self._precedences):
+    for idx, (i, j, min_lag, max_lag) in enumerate(classe._precedences):
 
         # ── Indici validi ─────────────────────────────
         if i not in valid_ids or j not in valid_ids:
@@ -47,7 +47,7 @@ def validate_inputs(self):
                 f"Precedenza [{idx}]: attività 0 non può essere successore."
             )
 
-        if i == self._n - 1:
+        if i == classe._n - 1:
             raise ValueError(
                 f"Precedenza [{idx}]: attività finale non può essere predecessore."
             )
@@ -72,13 +72,13 @@ def validate_inputs(self):
         seen_edges.add((i, j))
 
     # ── Cicli nel grafo delle precedenze ─────────────────────────────────
-    _check_time_feasibility(self._precedences, self._n)
+    _check_time_feasibility(classe._precedences, classe._n)
     
     # ── Release e due date validation ────────────────────────────────────
-    if self._release_dates is not None and len(self._release_dates) != self._n:
+    if classe._release_dates is not None and len(classe._release_dates) != classe._n:
         raise ValueError("release_dates dimensione errata")
 
-    if self._due_dates is not None and len(self._due_dates) != self._n:
+    if classe._due_dates is not None and len(classe._due_dates) != classe._n:
         raise ValueError("due_dates dimensione errata")
 
 # ──────────────────────────────────────────────────────────────────────────────

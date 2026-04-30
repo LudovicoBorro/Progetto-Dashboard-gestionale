@@ -1,12 +1,33 @@
 from utils.validators.validate_input_rcpsp import validate_inputs as val_inputs_rcpsp
 from utils.validators.validate_input_rcpsp_max import validate_inputs as val_inputs_rcpsp_max
+from pydantic import BaseModel
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 # PREPROCESSING DEGLI INPUT PER COMPATIBILITÀ MODELLI
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-def _pre_processing_rcpsp(orch, n: int, durations: list[int], precedences: list[tuple[int,int]], resources: list[int], 
-                            consumption: list[list[int]], horizon: int):
+class ProcessedRCPSPMax(BaseModel):
+    n: int
+    activities: list[int]
+    durations: list[int]
+    precedences: list[tuple[int, int, int, int | None]]
+    resources: list[int]
+    consumption: list[list[int]]
+    horizon: int
+    release_dates: list[int | None]
+    due_dates: list[int | None]
+
+class ProcessedRCPSP(BaseModel):
+    n: int
+    activities: list[int]
+    durations: list[int]
+    precedences: list[tuple[int, int]]
+    resources: list[int]
+    consumption: list[list[int]]
+    horizon: int
+
+def _pre_processing_rcpsp(n: int, durations: list[int], precedences: list[tuple[int,int]], resources: list[int], 
+                            consumption: list[list[int]], horizon: int) -> ProcessedRCPSP:
     """
     Preprocessing dei dati di input per il problema RCPSP.
     
@@ -31,69 +52,120 @@ def _pre_processing_rcpsp(orch, n: int, durations: list[int], precedences: list[
             raise RuntimeError("Le precedenze passate hanno un formato errato!")
     
     # Aggiungo le attività dummy, quella iniziale e finale
-    orch._n = n + 2
-    orch._activities = list(range(orch._n))
-    orch._durations = [0] + durations + [0]
-    orch._resources = resources
-    lista_consumi = [0] * len(orch._resources)
-    orch._consumption = [lista_consumi.copy()] + consumption + [lista_consumi.copy()]
-    orch._horizon = horizon
+    new_n = n + 2
+    activities = list(range(new_n))
+    new_durations = [0] + durations + [0]
+    lista_consumi = [0] * len(resources)
+    new_consumption = [lista_consumi.copy()] + consumption + [lista_consumi.copy()]
     precedences = _shift_precedences(precedences, rcpsp_max=False)
-    precedences = _add_dummy_activities(orch, precedences=precedences, rcpsp_max=False)
-    orch._precedences = precedences
+    precedences = _add_dummy_activities(n=new_n, durations=new_durations, precedences=precedences, rcpsp_max=False)
+
+    processed = ProcessedRCPSP(
+        n=new_n,
+        activities=activities,
+        durations=new_durations,
+        precedences=precedences,
+        resources=resources,
+        consumption=new_consumption,
+        horizon=horizon
+    )
 
     # Lancio una validazione dei dati processati
-    try:
-        val_inputs_rcpsp(orch)
-    except Exception as e:
-        raise e
+    val_inputs_rcpsp(processed)
 
-def _pre_processing_rcpsp_max(orch,  n: int, durations: list[int], precedences: list[tuple[int,int,str,int,int | None]], resources: list[int], 
-                                consumption: list[list[int]], horizon: int, release_dates: list[int], due_dates: list[int]):
-    """
-    Preprocessing dei dati di input per il problema RCPSP_MAX.
-    
-    Estende il preprocessing RCPSP per gestire vincoli aggiuntivi come date di inizio
-    e scadenza, e precedenze di tipo minmax (FS, SS, FF, SF) con lag minimo e massimo.
-    
-    Args:
-        n: Numero di attività (senza dummy)
-        durations: Lista delle durate di ciascuna attività
-        precedences: Lista di tuple (i,j,tipo,lag,lag_max) dove tipo è uno tra FS,SS,FF,SF
-        resources: Lista delle disponibilità di ciascuna risorsa
-        consumption: Matrice dei consumi di risorse per attività
-        horizon: Limite temporale per il completamento del progetto
-        release_dates: Data di disponibilità di ciascuna attività
-        due_dates: Data di scadenza di ciascuna attività
-        
-    Raises:
-        RuntimeError: Se le precedenze hanno un formato errato
-        Exception: Se la validazione dei dati fallisce
-    """
+def _pre_processing_rcpsp_max(
+    n: int,
+    durations: list[int],
+    precedences: list[tuple[int, int, int, int | None]],
+    resources: list[int],
+    consumption: list[list[int]],
+    horizon: int,
+    release_dates: list[int | None],
+    due_dates: list[int | None]
+) -> ProcessedRCPSPMax:
+
+    # -------- VALIDAZIONE BASE --------
     for elem in precedences:
         if len(elem) != 5:
-            raise RuntimeError("Le precedenze passate hanno un formato errato!")
-    
-    # Aggiungo le attività dummy, quella iniziale e finale
-    orch._n = n + 2
-    orch._activities = list(range(orch._n))
-    orch._durations = [0] + durations + [0]
-    orch._resources = resources
-    lista_consumi = [0] * len(orch._resources)
-    orch._consumption = [lista_consumi.copy()] + consumption + [lista_consumi.copy()]
-    orch._horizon = horizon
-    orch._release_dates = [None] + release_dates + [None]
-    orch._due_dates = [None] + due_dates + [None]
-    precedences = _shift_precedences(precedences, rcpsp_max=True)
-    precedences = _convert_precedences_to_minmax(precedences, orch._durations)
-    precedences = _add_dummy_activities(orch, precedences=precedences, rcpsp_max=True)
-    orch._precedences = precedences
+            raise RuntimeError("Formato precedenze errato")
 
-    # Lancio una validazione dei dati processati
-    try:
-        val_inputs_rcpsp_max(orch)
-    except Exception as e:
-        raise e
+    # -------- COSTRUZIONE DATI --------
+    new_n = n + 2
+    activities = list(range(new_n))
+
+    new_durations = [0] + durations + [0]
+
+    zero_cons = [0] * len(resources)
+    new_consumption = [zero_cons.copy()] + consumption + [zero_cons.copy()]
+
+    new_release = [None] + release_dates + [None]
+    new_due = [None] + due_dates + [None]
+
+    # -------- PRECEDENZE --------
+    precedences = _shift_precedences(precedences, rcpsp_max=True)
+    precedences = _convert_precedences_to_minmax(precedences, new_durations)
+    precedences = _add_dummy_activities(
+        n=new_n,
+        durations=new_durations,
+        precedences=precedences,
+        rcpsp_max=True
+    )
+
+    processed = ProcessedRCPSPMax(
+        n=new_n,
+        activities=activities,
+        durations=new_durations,
+        precedences=precedences,
+        resources=resources,
+        consumption=new_consumption,
+        horizon=horizon,
+        release_dates=new_release,
+        due_dates=new_due
+    )
+
+    # -------- VALIDAZIONE --------
+    val_inputs_rcpsp_max(processed)
+
+    return processed
+
+def _add_dummy_activities(n, durations, precedences, rcpsp_max: bool):
+
+    new_precedences = []
+
+    has_pred = dict.fromkeys(range(n), False)
+    has_succ = dict.fromkeys(range(n), False)
+
+    if rcpsp_max:
+        for (i, j, min_lag, max_lag) in precedences:
+            has_pred[j] = True
+            has_succ[i] = True
+
+        # dummy start = 0
+        for j in range(1, n - 1):
+            if not has_pred[j]:
+                new_precedences.append((0, j, 0, None))
+
+        # dummy end = n-1
+        for i in range(1, n - 1):
+            if not has_succ[i]:
+                new_precedences.append((i, n - 1, durations[i], None))
+
+    else:
+        for (i, j) in precedences:
+            has_pred[j] = True
+            has_succ[i] = True
+
+        # dummy start = 0
+        for j in range(1, n - 1):
+            if not has_pred[j]:
+                new_precedences.append((0, j))
+
+        # dummy end = n-1
+        for i in range(1, n - 1):
+            if not has_succ[i]:
+                new_precedences.append((i, n - 1))
+
+    return precedences + new_precedences
 
 def _convert_precedences_to_minmax(precedences, durations) -> list[tuple[int, int, int, int | None]]:
     """
@@ -139,58 +211,6 @@ def _convert_precedences_to_minmax(precedences, durations) -> list[tuple[int, in
         result.append((i, j, min_lag, max_lag_conv))
 
     return result
-
-def _add_dummy_activities(orch, precedences, rcpsp_max: bool):
-    """
-    Aggiunge le attività dummy (inizio e fine) al grafo delle precedenze.
-    
-    Le attività dummy sono necessarie per rappresentare il punto di inizio e il punto di fine
-    di tutto il progetto. Connette tutte le attività senza predecessori alla dummy iniziale
-    e tutte le attività senza successori alla dummy finale.
-    Questo garantisce una struttura di grafo valida per gli algoritmi di scheduling.
-    
-    Args:
-        precedences: Lista delle precedenze (già shiftate)
-        rcpsp_max: True se il problema è RCPSP_MAX, False se RCPSP
-        
-    Returns:
-        Lista aggiornata delle precedenze con i collegamenti alle dummy aggiunti
-    """
-    new_precedences = []
-
-    has_pred = dict.fromkeys(range(orch._n), False)
-    has_succ = dict.fromkeys(range(orch._n), False)
-
-    if rcpsp_max: 
-        for (i, j, min_lag, max_lag) in precedences:
-            has_pred[j] = True
-            has_succ[i] = True
-
-        # dummy start = 0
-        for j in range(1, orch._n - 1):
-            if not has_pred[j]:
-                new_precedences.append((0, j, 0, None))
-
-        # dummy end = n-1
-        for i in range(1, orch._n - 1):
-            if not has_succ[i]:
-                new_precedences.append((i, orch._n - 1, orch._durations[i], None))
-    else:
-        for (i, j) in precedences:
-            has_pred[j] = True
-            has_succ[i] = True
-
-        # dummy start = 0
-        for j in range(1, orch._n - 1):
-            if not has_pred[j]:
-                new_precedences.append((0, j))
-
-        # dummy end = n-1
-        for i in range(1, orch._n - 1):
-            if not has_succ[i]:
-                new_precedences.append((i, orch._n - 1))
-
-    return precedences + new_precedences
 
 def _shift_precedences(precedences, rcpsp_max: bool):
     """

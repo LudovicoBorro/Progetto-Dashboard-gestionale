@@ -1,2 +1,4 @@
 ortools~=9.15.6755
 psplib~=0.4.0
+networkx~=3.6.1
+pydantic~=2.13.3
