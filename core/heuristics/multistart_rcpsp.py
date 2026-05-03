@@ -76,7 +76,8 @@ def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
     for _ in range(n_runs):
 
         pl = priority_list.copy()
-        random.shuffle(pl)
+        if n_runs > 1:
+            random.shuffle(pl)
 
         try:
             sol = sgs.parallel(pl)
@@ -111,7 +112,8 @@ def test_multistart_stats_serial(sgs, priority_list, n_runs=100):
     for _ in range(n_runs):
 
         pl = priority_list.copy()
-        random.shuffle(pl)
+        if n_runs > 1:
+            random.shuffle(pl)
 
         try:
             sol = sgs.serial(pl)

@@ -22,6 +22,7 @@ class BranchAndBoundSolver:
         self.limit_lookahead = kwargs.get("limit_lookahead", 5)
         self.priority_rule = kwargs.get("priority_rule", "spt")
         self._visited = set()
+        self._n_chiamate = 0
 
     def esplora_soluzioni(self, instant_sol, rcpsp_max):
         # Questa funzione deve preuccuparsi di analizzare per prima cosa i dati in input,
@@ -62,16 +63,22 @@ class BranchAndBoundSolver:
                 return BestSolutionBAndB(BestConfigBAndB(durations_fixed, resources_fixed, self.base_data.release_dates, self.base_data.due_dates), BestSolutionBAndB(**result))
             else:
                 # Inizializzo le durate a min, le risorse a max, le release date a min e le due date a max, e calcolo LB iniziale e UB iniziale
+                self._n_chiamate = 0
                 durations_fixed = self._fix_to_min(self.base_data.durations)
                 resources_fixed = self._fix_to_max(self.base_data.resources)
                 release_dates_fixed = self._fix_to_min(self.base_data.release_dates)
                 due_dates_fixed = self._fix_to_max(self.base_data.due_dates)
-                self._best_ub = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
+                first_ub = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
+                self._best_ub = first_ub.get("best").get("best").get("makespan")
+                self._best_solution_orchestrator = first_ub
                 self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
                 self._branch(self._best_config.model_dump())
+                print(f"Numero chiamate del branch: {self._n_chiamate}")
                 return None
 
     def _branch(self, config):
+
+        self._n_chiamate += 1
 
         # Controllo se la configurazione è già stata visitata
         key = (
@@ -109,7 +116,7 @@ class BranchAndBoundSolver:
         )
 
         # pruning
-        if LB >= self._best_ub:
+        if LB > self._best_ub:
             return
 
         # ---------- UB ----------
@@ -140,12 +147,12 @@ class BranchAndBoundSolver:
         low, high = val
 
         # LOW branch
-        new_config = {k: v.copy() for k, v in config.items()}
+        new_config = copy.deepcopy(config)
         new_config[field][i] = low
         self._branch(new_config)
 
         # HIGH branch
-        new_config = {k: v.copy() for k, v in config.items()}
+        new_config = copy.deepcopy(config)
         new_config[field][i] = high
         self._branch(new_config)
             
@@ -261,6 +268,6 @@ class BranchAndBoundSolver:
         return self._best_config
     
     def best_solution(self):
-        if self._best_ub is None or self._best_config is None:
+        if self._best_ub is None or self._best_config is None or self._best_solution_orchestrator is None:
             return None
-        return BestSolutionBAndB(config=BestConfigBAndB(**self._best_config), solution=SoluzioneOrchestrator(**self._best_solution_orchestrator))
+        return BestSolutionBAndB(config=self._best_config, solution=SoluzioneOrchestrator(**self._best_solution_orchestrator))

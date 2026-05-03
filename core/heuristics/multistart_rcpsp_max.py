@@ -111,7 +111,8 @@ def test_multistart_stats_parallel(sgs, priority_list, time_weight, resource_wei
     for _ in range(n_runs):
 
         pl = priority_list.copy()
-        random.shuffle(pl)
+        if n_runs > 1:
+            random.shuffle(pl)
 
         try:
             sol = sgs.parallel(pl, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight, limit_lookahead=limit_lookahead)
@@ -147,7 +148,8 @@ def test_multistart_stats_serial(sgs, priority_list, time_weight, resource_weigh
     for _ in range(n_runs):
 
         pl = priority_list.copy()
-        random.shuffle(pl)
+        if n_runs > 1:
+            random.shuffle(pl)
 
         try:
             sol = sgs.serial(pl, time_weight=time_weight, resource_weight=resource_weight, priority_weight=priority_weight, tardiness_weight=tardiness_weight, limit_lookahead=limit_lookahead)
