@@ -99,13 +99,13 @@ class SGSEngine:
 
         consumption_profile = np.zeros((len(self._resources), horizon + 1), dtype=int)
 
-        while len(scheduled) < self._n - 1:
+        # print(f"DEBUG: SGS serial for n={self._n}")
+        while len(scheduled) < self._n:
 
             # Filtro attività valide
             eligible = [
                 j for j in priority_list
                 if j not in scheduled
-                and j != self._n - 1
                 and all(i in scheduled for (i, _, _) in preds_map[j])
             ]
 
@@ -247,9 +247,7 @@ class SGSEngine:
                 scheduled.add(j_fb)
                 self._penalty_ser += best_cost
                 
-        # Attività dummy finale
-        start_times[last] = max()
-        finish_times[last] = start_times[last]
+
 
         schedule = []
         for a, t in start_times.items():
@@ -308,7 +306,7 @@ class SGSEngine:
         finish_times[0] = 0
         scheduled.add(0)
 
-        while len(scheduled) < self._n - 1:
+        while len(scheduled) < self._n:
 
             # Rimuovo le attività terminate al tempo t
             finished_now = [j for j in ongoing if finish_times[j] <= t]
@@ -325,7 +323,7 @@ class SGSEngine:
             next_times: list[int] = []
  
             for j in priority_list:
-                if j in scheduled or j in ongoing or j == last:
+                if j in scheduled or j in ongoing:
                     continue
  
                 # Controlla se tutti i predecessori sono schedulati
@@ -466,9 +464,7 @@ class SGSEngine:
             else:
                 t += 1
 
-        # Ultimo nodo
-        start_times[last] = self._compute_dummy_end_start(start_times, last)
-        finish_times[last] = start_times[last]
+
 
         schedule = []
         for a, t in start_times.items():
@@ -478,29 +474,7 @@ class SGSEngine:
 
         return sorted(schedule, key=lambda x: x["start"])
 
-    def _compute_dummy_end_start(self, start_times: dict[int, int], last: int) -> int:
-        es_last = 0
-        ls_last = float("inf")
 
-        for (i, j, min_lag, max_lag) in self._precedences:
-            if j != last:
-                continue
-            es_last = max(es_last, start_times[i] + min_lag)
-            if max_lag is not None:
-                ls_last = min(ls_last, start_times[i] + max_lag)
-
-        if self._release_dates and self._release_dates[last] is not None:
-            es_last = max(es_last, self._release_dates[last])
-
-        if self._due_dates and self._due_dates[last] is not None:
-            ls_last = min(ls_last, self._due_dates[last] - self._durations[last])
-
-        if es_last > ls_last:
-            raise RuntimeError(
-                "Impossibile schedulare l'ultima attività dummy: finestre [ES,LS] infeasible"
-            )
-
-        return int(es_last)
 
     def _compute_cost(self, j, t, es_j, ls_j, priority_index, usage_profile, time_weight, resource_weight, priority_weight, tardiness_weight):
         """
@@ -560,7 +534,10 @@ class SGSEngine:
                     if over > 0:
                         overuse += over
 
-        overuse_penalty = (overuse /(durata * len(self._resources))) * resource_weight
+        if durata > 0:
+            overuse_penalty = (overuse / (durata * len(self._resources))) * resource_weight
+        else:
+            overuse_penalty = 0
 
         cost += overuse_penalty
 
