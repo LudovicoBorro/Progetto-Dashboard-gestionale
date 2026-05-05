@@ -73,6 +73,8 @@ def _pre_processing_rcpsp(n: int, durations: list[int], precedences: list[tuple[
     # Lancio una validazione dei dati processati
     val_inputs_rcpsp(processed)
 
+    return processed
+
 def _pre_processing_rcpsp_max(
     n: int,
     durations: list[int],
@@ -146,8 +148,9 @@ def _add_dummy_activities(n, durations, precedences, rcpsp_max: bool):
                 new_precedences.append((0, j, 0, None))
 
         # dummy end = n-1
+        existing = set((i, j) for i, j, _, _ in precedences)
         for i in range(1, n - 1):
-            if not has_succ[i]:
+            if (i, n - 1) not in existing:
                 new_precedences.append((i, n - 1, durations[i], None))
 
     else:

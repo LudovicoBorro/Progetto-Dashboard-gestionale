@@ -3,6 +3,7 @@ from solver.dataclasses.best_config_b_and_b import BestConfigBAndB
 from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
 from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
 from solver.preprocessing import _pre_processing_rcpsp_max
+from time import time
 import networkx as nx
 import math
 import copy
@@ -23,6 +24,7 @@ class BranchAndBoundSolver:
         self.priority_rule = kwargs.get("priority_rule", "spt")
         self._visited = set()
         self._n_chiamate = 0
+        self._variables = []
 
     def esplora_soluzioni(self, instant_sol, rcpsp_max):
         # Questa funzione deve preuccuparsi di analizzare per prima cosa i dati in input,
@@ -68,15 +70,25 @@ class BranchAndBoundSolver:
                 resources_fixed = self._fix_to_max(self.base_data.resources)
                 release_dates_fixed = self._fix_to_min(self.base_data.release_dates)
                 due_dates_fixed = self._fix_to_max(self.base_data.due_dates)
-                first_ub = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
-                self._best_ub = first_ub.get("best").get("best").get("makespan")
-                self._best_solution_orchestrator = first_ub
+                self._best_ub = float("inf")
+                first_ub_result = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
+                best_entry = first_ub_result.get("best", {}).get("best", {})
+                self._best_ub = best_entry.get("score", float("inf"))
+                self._best_solution_orchestrator = first_ub_result
                 self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
-                self._branch(self._best_config.model_dump())
+                print("Durations:", self.base_data.durations)
+                print("Resources:", self.base_data.resources)
+                print("Release dates:", self.base_data.release_dates)
+                print("Due dates:", self.base_data.due_dates)
+                self._compute_list_variables()
+                start_time = time()
+                self._branch({"durations": self.base_data.durations, "resources": self.base_data.resources, "release_dates": self.base_data.release_dates, "due_dates": self.base_data.due_dates})
+                end_time = time()
                 print(f"Numero chiamate del branch: {self._n_chiamate}")
+                print(f"Tempo totale: {(end_time - start_time) / 60:.2f} minuti")
                 return None
 
-    def _branch(self, config):
+    def _branch(self, config, var_index=0):
 
         self._n_chiamate += 1
 
@@ -89,21 +101,27 @@ class BranchAndBoundSolver:
         )
 
         if key in self._visited:
+            print(f"[DEBUG #{self._n_chiamate}] Nodo già visitato -> skip")
             return
         
         self._visited.add(key)
+
+        # Fisso i dati per il calcolo dell'UB e LB
+        fixed = self._fix_config_for_ub(config)
+        # print(f"[DEBUG #{self._n_chiamate}] Config attuale: {config}")
+        # print(f"[DEBUG #{self._n_chiamate}] Config fixed usata: {fixed}")
 
         # ---------- LB ----------
 
         processed = _pre_processing_rcpsp_max(
             n=self.base_data.n,
-            durations=config["durations"],
+            durations=fixed["durations"],
             precedences=self.base_data.precedences,
-            resources=config["resources"],
+            resources=fixed["resources"],
             consumption=self.base_data.consumption,
             horizon=self.base_data.horizon,
-            release_dates=config["release_dates"],
-            due_dates=config["due_dates"]
+            release_dates=fixed["release_dates"],
+            due_dates=fixed["due_dates"]
         )
 
         LB = self._compute_lb(
@@ -115,60 +133,89 @@ class BranchAndBoundSolver:
             processed.release_dates
         )
 
+        print(f"[DEBUG #{self._n_chiamate}] LB={LB} | best_ub={self._best_ub} | pruning={'SI' if LB > self._best_ub else 'NO'}")
+
         # pruning
-        if LB > self._best_ub:
+        if LB >= self._best_ub:
             return
 
         # ---------- UB ----------
         sol = self._compute_ub(
-            config["durations"],
-            config["resources"],
-            config["release_dates"],
-            config["due_dates"]
+            fixed["durations"],
+            fixed["resources"],
+            fixed["release_dates"],
+            fixed["due_dates"]
         )
 
-        UB = sol.get("best").get("best").get("makespan", float("inf")) if isinstance(sol.get("best").get("best"), dict) else float("inf")
+        UB_score = sol.get("best").get("best").get("score", float("inf")) if isinstance(sol.get("best").get("best"), dict) else float("inf")
+        penalita = sol.get("best").get("best").get("penalità", float("inf"))
 
-        if UB < self._best_ub:
-            self._best_ub = UB
-            self._best_config = copy.deepcopy(config)
+        print(f"[DEBUG #{self._n_chiamate}] UB_score={UB_score} | penalità={penalita}")
+
+        if UB_score < self._best_ub:
+            self._best_ub = UB_score
+            self._best_config = copy.deepcopy(fixed)
             self._best_solution_orchestrator = sol
 
+        if var_index == len(self._variables):
+            return
+
         # ---------- branching ----------
-        var = self._select_branch_variable(config)
+        var = self._variables[var_index]
+        print(f"[DEBUG #{self._n_chiamate}] Variabile di branch selezionata: {var}")
 
         if var is None:
+            print(f"[DEBUG #{self._n_chiamate}] Nessuna variabile -> nodo foglia")
             return  # tutto fissato
 
         field, i = var
         val = config[field][i]
+        print(f"[DEBUG #{self._n_chiamate}] Branch su {field}[{i}] = {val}")
         if not isinstance(val, tuple):
+            self._branch(config, var_index + 1)
             return 
+        
         low, high = val
+        print(f"[DEBUG #{self._n_chiamate}] LOW={low}, HIGH={high}")
 
         # LOW branch
         new_config = copy.deepcopy(config)
         new_config[field][i] = low
-        self._branch(new_config)
+        self._branch(new_config, var_index + 1)
 
         # HIGH branch
         new_config = copy.deepcopy(config)
         new_config[field][i] = high
-        self._branch(new_config)
+        self._branch(new_config, var_index + 1)
             
-    def _select_branch_variable(self, config):
-        best = None
-        best_width = -1
+    def _compute_list_variables(self):
 
-        for field in ["durations", "resources", "release_dates", "due_dates"]:
-            for i, val in enumerate(config[field]):
-                if isinstance(val, tuple):
-                    width = val[1] - val[0]
-                    if width > best_width:
-                        best_width = width
-                        best = (field, i)
+        self._variables = []
 
-        return best
+        for i, d in enumerate(self.base_data.durations):
+            if isinstance(d, tuple):
+                self._variables.append(("durations", i))
+
+        for i, r in enumerate(self.base_data.resources):
+            if isinstance(r, tuple):
+                self._variables.append(("resources", i))
+
+        for i, rd in enumerate(self.base_data.release_dates):
+            if isinstance(rd, tuple):
+                self._variables.append(("release_dates", i))
+
+        for i, dd in enumerate(self.base_data.due_dates):
+            if isinstance(dd, tuple):
+                self._variables.append(("due_dates", i))
+    
+    def _fix_config_for_ub(self, config):
+        """Fisso la config per il calcolo dell'UB. Considero lo stesso scenario iniziale, quindi quello più ottimistico."""
+        return{
+            "durations": self._fix_to_min(config["durations"]),
+            "resources": self._fix_to_max(config["resources"]),
+            "release_dates": self._fix_to_min(config["release_dates"]),
+            "due_dates": self._fix_to_max(config["due_dates"]),
+        }
 
     def _fix_to_min(self, lista):
         return [min(d) if isinstance(d, tuple) else d for d in lista]
@@ -203,13 +250,17 @@ class BranchAndBoundSolver:
         G.add_nodes_from(activities)
 
         # Aggiunta archi e precedenze
-        for (i, j, min_lag, max_lag) in precedences:
-            G.add_edge(i, j, weight=min_lag)
+        for (i, j, min_lag, _) in precedences:
+            G.add_edge(i, j, weight=min_lag)         # Il peso è solamente il min_lag, perchè il preprocessing converte tutte le precedenze in start_to_start comprendenti delle durate dei job  
 
         # Aggiunta release dates
         for i in activities:
             if release_dates[i] is not None:
-                G.add_edge(0, i, weight=release_dates[i])
+                rd = release_dates[i]
+                if G.has_edge(0, i):
+                    G[0][i]["weight"] = max(G[0][i]["weight"], rd)
+                else:
+                    G.add_edge(0, i, weight=rd)
         
         # Check del DAG (Directed Acyclic Graph)
         if not nx.is_directed_acyclic_graph(G):
@@ -253,12 +304,104 @@ class BranchAndBoundSolver:
 
     def _compute_ub(self, durations, resources, release_dates, due_dates):
 
-        return self.orch.choose_model(n=self.base_data.n, durations=durations, precedences=self.base_data.precedences, resources=resources,
-                                    consumption=self.base_data.consumption, horizon=self.base_data.horizon, release_dates=release_dates, 
-                                    due_dates=due_dates, top_k=self.top_k, time_weight=self.time_weight, resource_weight=self.resource_weight, priority_weight=self.priority_weight, 
-                                    tardiness_weight=self.tardiness_weight, limit_lookahead=self.limit_lookahead, instant_sol=True, priority_rule=self.priority_rule, rcpsp_max=True)
+        result = self.orch.choose_model(
+            n=self.base_data.n,
+            durations=durations,
+            precedences=self.base_data.precedences,
+            resources=resources,
+            consumption=self.base_data.consumption,
+            horizon=self.base_data.horizon,
+            release_dates=release_dates,
+            due_dates=due_dates,
+            top_k=self.top_k,
+            time_weight=self.time_weight,
+            resource_weight=self.resource_weight,
+            priority_weight=self.priority_weight,
+            tardiness_weight=self.tardiness_weight,
+            limit_lookahead=self.limit_lookahead,
+            instant_sol=True,
+            priority_rule=self.priority_rule,
+            rcpsp_max=True,
+        )
 
-    
+        return result
+
+    def _validate_ub_solution(self, solution, durations, resources, release_dates, due_dates):
+        schedule = self._extract_solution_schedule(solution)
+        if not schedule or not isinstance(schedule, list):
+            return False
+
+        try:
+            processed = _pre_processing_rcpsp_max(
+                n=self.base_data.n,
+                durations=durations,
+                precedences=self.base_data.precedences,
+                resources=resources,
+                consumption=self.base_data.consumption,
+                horizon=self.base_data.horizon,
+                release_dates=release_dates,
+                due_dates=due_dates,
+            )
+        except Exception:
+            return False
+
+        activity_times = {}
+        for entry in schedule:
+            if not isinstance(entry, dict):
+                return False
+            activity = entry.get("activity")
+            start = entry.get("start")
+            end = entry.get("end")
+            if activity is None or start is None or end is None:
+                return False
+            if not isinstance(activity, int) or not isinstance(start, int) or not isinstance(end, int):
+                return False
+            if end < start:
+                return False
+            duration = entry.get("duration")
+            if duration is not None and duration != end - start:
+                return False
+            if activity in activity_times:
+                return False
+            activity_times[activity] = (start, end)
+
+        if len(activity_times) != processed.n:
+            return False
+
+        for i in range(processed.n):
+            if i not in activity_times:
+                return False
+
+        for (i, j, min_lag, max_lag) in processed.precedences:
+            start_i = activity_times[i][0]
+            start_j = activity_times[j][0]
+            if start_j < start_i + min_lag:
+                return False
+            if max_lag is not None and start_j > start_i + max_lag:
+                return False
+
+        for i, (start, end) in activity_times.items():
+            if processed.release_dates[i] is not None and start < processed.release_dates[i]:
+                return False
+            if processed.due_dates[i] is not None and end > processed.due_dates[i]:
+                return False
+
+        return True
+
+    def _extract_solution_schedule(self, solution):
+        if not isinstance(solution, dict):
+            return None
+
+        best = solution.get("best")
+        if best is None:
+            return None
+
+        if isinstance(best.get("best"), dict):
+            inner = best["best"]
+            return inner.get("soluzione") or inner.get("schedule")
+
+        return best.get("soluzione") or best.get("schedule")
+
     @property
     def best_ub(self):
         return self._best_ub

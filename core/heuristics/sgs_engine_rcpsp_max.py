@@ -248,7 +248,7 @@ class SGSEngine:
                 self._penalty_ser += best_cost
                 
         # Attività dummy finale
-        start_times[last] = max(start_times[i] + self._durations[i] for i in start_times)
+        start_times[last] = max()
         finish_times[last] = start_times[last]
 
         schedule = []
@@ -371,17 +371,28 @@ class SGSEngine:
             scheduled_this_step = False
  
             for (j, es_j, ls_j) in eligible_with_windows:
-                # Controllo risorse
-                feasible = True
+                # Calcolo l'istanza di inizio effettiva nel caso la finestra inizi nel futuro
+                start = max(t, int(es_j))
+                if start > ls_j:
+                    continue
 
-                for r in range(len(self._resources)):
-                    if current_usage[r] + self._consumption[j][r] > self._resources[r]:
+                # Controllo risorse sulla finestra [start, start+durata]
+                feasible = True
+                durata_j = self._durations[j]
+                for tau in range(start, start + durata_j):
+                    if tau > self._horizon:
                         feasible = False
                         break
- 
+                    for r in range(len(self._resources)):
+                        if current_usage[r] + self._consumption[j][r] > self._resources[r]:
+                            feasible = False
+                            break
+                    if not feasible:
+                        break
+
                 if feasible:
-                    start_times[j] = t
-                    finish_times[j] = t + self._durations[j]
+                    start_times[j] = start
+                    finish_times[j] = start + self._durations[j]
                     for r in range(len(self._resources)):
                         current_usage[r] += self._consumption[j][r]
                     scheduled.add(j)
@@ -456,7 +467,7 @@ class SGSEngine:
                 t += 1
 
         # Ultimo nodo
-        start_times[last] = max(finish_times.values())
+        start_times[last] = self._compute_dummy_end_start(start_times, last)
         finish_times[last] = start_times[last]
 
         schedule = []
@@ -466,7 +477,31 @@ class SGSEngine:
             )
 
         return sorted(schedule, key=lambda x: x["start"])
-    
+
+    def _compute_dummy_end_start(self, start_times: dict[int, int], last: int) -> int:
+        es_last = 0
+        ls_last = float("inf")
+
+        for (i, j, min_lag, max_lag) in self._precedences:
+            if j != last:
+                continue
+            es_last = max(es_last, start_times[i] + min_lag)
+            if max_lag is not None:
+                ls_last = min(ls_last, start_times[i] + max_lag)
+
+        if self._release_dates and self._release_dates[last] is not None:
+            es_last = max(es_last, self._release_dates[last])
+
+        if self._due_dates and self._due_dates[last] is not None:
+            ls_last = min(ls_last, self._due_dates[last] - self._durations[last])
+
+        if es_last > ls_last:
+            raise RuntimeError(
+                "Impossibile schedulare l'ultima attività dummy: finestre [ES,LS] infeasible"
+            )
+
+        return int(es_last)
+
     def _compute_cost(self, j, t, es_j, ls_j, priority_index, usage_profile, time_weight, resource_weight, priority_weight, tardiness_weight):
         """
         Metodo per calcolare la funzione di costo. 

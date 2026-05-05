@@ -6,6 +6,9 @@ l'esecuzione dei modelli di ottimizzazione.
 """
 from tests.instance_rcpsp_and_rcpsp_max import Instance
 from solver.orchestrator import SolverOrchestrator
+from solver.preprocessing import _pre_processing_rcpsp_max
+from core.heuristics.sgs_engine_rcpsp_max import SGSEngine
+from core.heuristics.priority_rules import wrapper_rule
 
 def test_orchestrator_exact():
     """
@@ -164,3 +167,90 @@ def _check_heuristic(soluzione, top_k):
             assert tipo == "heuristic_single_start"
         elif diff in ("medium", "hard"):
             assert tipo == "heuristic_multi_start"
+
+
+def _check_schedule_precedences(schedule, precedences):
+    start_times = {item["activity"]: item["start"] for item in schedule}
+    for (i, j, min_lag, max_lag) in precedences:
+        assert start_times[j] >= start_times[i] + min_lag
+        if max_lag is not None:
+            assert start_times[j] <= start_times[i] + max_lag
+
+
+def test_sgs_engine_serial_and_parallel_end_dummy_schedule():
+    n = 5
+    durations = [3, 2, 4, 3, 2]
+    resources = [10, 10, 10]
+    consumption = [
+        [0, 0, 0],
+        [2, 1, 1],
+        [1, 1, 1],
+        [2, 1, 1],
+        [1, 1, 1],
+    ]
+    precedences_rcpsp_max = [
+        (0, 1, "FS", 0, None),
+        (1, 2, "FS", 0, None),
+        (2, 3, "FS", 0, None),
+        (3, 4, "FS", 0, None),
+    ]
+    horizon = 20
+    release_dates = [None] * n
+    due_dates = [None] * n
+
+    processed = _pre_processing_rcpsp_max(
+        n=n,
+        durations=durations,
+        precedences=precedences_rcpsp_max,
+        resources=resources,
+        consumption=consumption,
+        horizon=horizon,
+        release_dates=release_dates,
+        due_dates=due_dates,
+    )
+
+    sgs = SGSEngine(
+        processed.n,
+        processed.durations,
+        processed.precedences,
+        processed.resources,
+        processed.consumption,
+        processed.horizon,
+        release_dates=processed.release_dates,
+        due_dates=processed.due_dates,
+        validate_input=True,
+    )
+
+    priority_list = wrapper_rule(
+        "spt",
+        n=processed.n,
+        durations=processed.durations,
+        precedences_rcpsp_max=processed.precedences,
+        resources=processed.resources,
+        consumption=processed.consumption,
+        horizon=processed.horizon,
+    )
+
+    schedule_serial = sgs.serial(
+        priority_list,
+        time_weight=1,
+        resource_weight=1,
+        priority_weight=1,
+        tardiness_weight=1,
+        limit_lookahead=5,
+    )
+    assert isinstance(schedule_serial, list)
+    assert len(schedule_serial) == processed.n
+    _check_schedule_precedences(schedule_serial, processed.precedences)
+
+    schedule_parallel = sgs.parallel(
+        priority_list,
+        time_weight=1,
+        resource_weight=1,
+        priority_weight=1,
+        tardiness_weight=1,
+        limit_lookahead=5,
+    )
+    assert isinstance(schedule_parallel, list)
+    assert len(schedule_parallel) == processed.n
+    _check_schedule_precedences(schedule_parallel, processed.precedences)

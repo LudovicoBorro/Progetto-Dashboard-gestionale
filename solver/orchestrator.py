@@ -187,7 +187,7 @@ class SolverOrchestrator:
                     n_runs=50,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(type="heuristic_multi_start_soft", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
+                return SoluzioneOrchestrator(type="heuristic_multi_start", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
             else:
                 # In questo caso eseguo un multistart hard
                 all_results, best_solution, _ = _run_sgs(
@@ -198,7 +198,7 @@ class SolverOrchestrator:
                     n_runs=500,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(type="heuristic_multi_start_hard", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
+                return SoluzioneOrchestrator(type="heuristic_multi_start", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
         # CASO 2
         # Soluzione esatta o normale richiesta
         else:
@@ -359,13 +359,16 @@ if __name__ == '__main__':
                 print(elem)
     else:
         print(f"Soluzione migliore: {soluzione.get("best")}")
-    print("=======================================================")
+    print("==============================================================================================================")
 
 
     # Test per Branch and Bound
 
-    n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_raw_instance_with_intervals()
+    n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates = Instance.get_raw_instance_with_intervals_minimal()
     top_k = 5
+
+    print("\n")
+    print("==============================================================================================================")
 
     soluzione = so.choose_model(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates, instant_sol=True, rcpsp_max=True, top_k=top_k, has_intervals=True)
     
@@ -375,12 +378,12 @@ if __name__ == '__main__':
     if not isinstance(soluzione, BestSolutionBAndB):
         print("Errore! Branch and Bound non è stato correttamente chiamato!")
     else:
-        print("Branch and Bound chiamato correttamente!\n")
+        print("Branch and Bound chiamato correttamente!")
         print("=======================================================")
         print(f"Metodo utilizzato: {soluzione.solution.type}\n")
         print(f"Difficoltà del problema stimata: {soluzione.solution.problem_difficulty}\n")
         print(f"Risultati: {soluzione.solution.results}\n")
-        print(f"Soluzione miglire: {soluzione.solution.best.get("best")}")
+        print(f"Soluzione migliore: {soluzione.solution.best.get("best")}")
         if type_rcpsp_max:
             print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
             for elem in soluzione.solution.best.get("top_k_score")[1:top_k]:

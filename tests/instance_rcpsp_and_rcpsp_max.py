@@ -160,13 +160,15 @@ class Instance:
         n = 28
         activities = list(range(n))
 
+        # 10 tuple
         durations = [
-            5, 3, 7, (2,4), 6, 4, 8, 3, 5,
+            5, 3, 7, (2,4), 6, (4,9), (5,8), (3,10), 5,
             9, 2, (6,8), 4, 7, 3, (5,9), 8, 6, 2,
-            (7,8), 4, 3, (9,15), 5, 6, 2, (8,13), 4,
+            (7,8), 4, 3, (9,15), 5, 6, 2, (8,13), (10,12),
         ]
 
-        resources = [(15,18), 12, (10,13)]
+        # 2 tuple
+        resources = [(12,13), 12, (9,11)]
 
         precedences_rcpsp = [
 
@@ -220,17 +222,85 @@ class Instance:
             [8,6,3],[2,2,1],[5,4,2],[4,3,2],[6,5,3],[3,3,1],[4,2,2],[7,6,3],[5,4,2],[2,2,1],
             [6,5,3],[4,3,2],[3,2,1],[8,6,3],[5,4,2],[6,5,3],[2,2,1],[7,6,3],[4,3,2],
         ]
-
+        
+        # 4 tuple
         release_dates = [
             None, None, (3,7), None, None, 5, None, None, 4,
-            None, 6, None, None, 8, None, None, 10, None, None,
+            None, 6, None, None, 8, None, (12,17), 10, None, None,
             12, None, None, (14,15), None, None, (12,16), None, None,
         ]
 
+        # 4 tuple
         due_dates = [
             None, None, None, (30,40), 45, None, 42, None, None,
             60, None, (65,70), None, 70, None, (75,77), None, 80, None,
-            90, None, None, 100, None, 105, None, 110, None,
+            90, None, None, 100, None, (100,107), None, 110, None,
         ]
 
+        # Considerando che si brancha solo su LOW e HIGH, le combinazioni totali sono:
+        # 2^10 * 2^2 * 2^4 * 2^4 = 2^20 = 1.048.576 combinazioni
+
+        return n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates
+    
+    @staticmethod
+    def get_raw_instance_with_intervals_minimal():
+        n = 5
+        activities = list(range(n))
+
+        # Intervalli: attività 2 e 4 (2^2)
+        durations = [ 
+            3,          # 1
+            (2, 5),     # 2 (Intervallo)
+            4,          # 3
+            (3, 6),     # 4 (Intervallo)
+            2           # 5
+        ]
+
+        # Risorsa fissa
+        resources = [(10,12), 10, 10]
+
+        # Precedenze lineari: 1 -> 2 -> 3 -> 4 -> 5
+        precedences_rcpsp = [
+            (1, 2), (2, 3), (3, 4), (4, 5)
+        ]
+
+        # Conversione in RCPSP/Max (logica originale)
+        precedences_rcpsp_max = []
+        for (i, j) in precedences_rcpsp:
+            # Prendi il valore alto della durata per il vincolo FS
+            if isinstance(durations[i], tuple):
+                _, high = durations[i]
+            else:
+                high = durations[i]
+            
+            # Semplificato per il test: max_lag rimosso o minimo
+            max_lag = None
+            precedences_rcpsp_max.append((i, j, "FS", high, max_lag))
+
+        # Orizzonte calcolato
+        horizon = 9
+        for i in activities:
+            if isinstance(durations[i], tuple):
+                _, high = durations[i]
+            else:
+                high = durations[i]
+            horizon += high
+
+        # Consumi (indice 0 ignorato)
+        consumption = [
+            [2, 1, 1], [3, 2, 1], [2, 1, 2], [4, 2, 1], [2, 1, 1]
+        ]
+        
+        # Release Dates: 1 intervallo su attività 1 (2^1)
+        release_dates = [
+            None,
+            (3, 5), None, None, None
+        ]
+
+        # Due Dates: 1 intervallo su attività 5 (2^1)
+        due_dates = [
+            None, None, None, None, (20, 30)
+        ]
+
+        # TOTALE COMBINAZIONI: 2^2 (durate) * 2^1 (release) * 2^1 (due) = 16
         return n, activities, durations, resources, precedences_rcpsp, precedences_rcpsp_max, horizon, consumption, release_dates, due_dates
