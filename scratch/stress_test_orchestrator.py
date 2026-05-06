@@ -5,6 +5,10 @@ from solver.orchestrator import SolverOrchestrator
 from tests.instance_rcpsp_and_rcpsp_max import Instance
 from solver.preprocessing import _pre_processing_rcpsp_max, _pre_processing_rcpsp
 
+
+# Comando da lanciare per lo stress test:
+# $env:PYTHONPATH="."; python scratch/stress_test_orchestrator.py cat scratch/stress_test_results.txt
+
 # Configurazione logging
 LOG_FILE = os.path.join("scratch", "stress_test_results.txt")
 
