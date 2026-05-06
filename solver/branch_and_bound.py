@@ -7,6 +7,7 @@ from time import time
 import networkx as nx
 import math
 import copy
+import heapq
 
 class BranchAndBoundSolver:
     def __init__(self, orch, **kwargs):
@@ -22,6 +23,9 @@ class BranchAndBoundSolver:
         self.tardiness_weight = kwargs.get("tardiness_weight", 1)
         self.limit_lookahead = kwargs.get("limit_lookahead", 5)
         self.priority_rule = kwargs.get("priority_rule", "spt")
+        self.max_nodes = kwargs.get("max_nodes", 5000)
+        self.max_time = kwargs.get("max_time", 600)  # 10 minuti di default
+        self.log_interval = kwargs.get("log_interval", 5) # secondi
         self._visited = set()
         self._n_chiamate = 0
         self._variables = []
@@ -70,143 +74,171 @@ class BranchAndBoundSolver:
                 resources_fixed = self._fix_to_max(self.base_data.resources)
                 release_dates_fixed = self._fix_to_min(self.base_data.release_dates)
                 due_dates_fixed = self._fix_to_max(self.base_data.due_dates)
+                
                 self._best_ub = float("inf")
                 first_ub_result = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
-                best_entry = first_ub_result.get("best", {}).get("best", {})
-                self._best_ub = best_entry.get("score", float("inf"))
-                self._best_solution_orchestrator = first_ub_result
-                self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
-                print("Durations:", self.base_data.durations)
-                print("Resources:", self.base_data.resources)
-                print("Release dates:", self.base_data.release_dates)
-                print("Due dates:", self.base_data.due_dates)
-                self._compute_list_variables()
+                best_inner = first_ub_result.get("best", {}).get("best", {})
+                if isinstance(best_inner, dict):
+                    self._best_ub = best_inner.get("score", float("inf"))
+                    self._best_solution_orchestrator = first_ub_result
+                    self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
+                
+                print(f"[INIT] Best UB iniziale: {self._best_ub}")
+
+                # --- BEST-FIRST SEARCH ---
+                queue = []
+                
+                initial_config = {
+                    "durations": list(self.base_data.durations),
+                    "resources": list(self.base_data.resources),
+                    "release_dates": list(self.base_data.release_dates),
+                    "due_dates": list(self.base_data.due_dates)
+                }
+                
+                # Calcolo LB iniziale per la coda
+                fixed_init = self._fix_config_for_ub(initial_config)
+                try:
+                    proc_init = _pre_processing_rcpsp_max(
+                        n=self.base_data.n, durations=fixed_init["durations"], precedences=self.base_data.precedences,
+                        resources=fixed_init["resources"], consumption=self.base_data.consumption, horizon=self.base_data.horizon,
+                        release_dates=fixed_init["release_dates"], due_dates=fixed_init["due_dates"]
+                    )
+                    lb_init, crit_init = self._compute_lb(
+                        proc_init.n, proc_init.durations, proc_init.precedences, 
+                        proc_init.consumption, proc_init.resources, proc_init.release_dates
+                    )
+                    # Inserisco il nodo radice
+                    heapq.heappush(queue, (lb_init, 0, initial_config, crit_init)) # 0 è un counter
+                except:
+                    print("[ERROR] Impossibile inizializzare il B&B (preprocessing fallito)")
+                    return None
+                
+                node_counter = 0
                 start_time = time()
-                self._branch({"durations": self.base_data.durations, "resources": self.base_data.resources, "release_dates": self.base_data.release_dates, "due_dates": self.base_data.due_dates})
+                last_log_time = start_time
+                
+                while queue:
+                    lb, _, config, critical_activities = heapq.heappop(queue)
+                    self._n_chiamate += 1
+                    
+                    # Controllo limiti
+                    curr_time = time()
+                    elapsed = curr_time - start_time
+                    if self._n_chiamate > self.max_nodes or elapsed > self.max_time:
+                        reason = "Limite nodi" if self._n_chiamate > self.max_nodes else "Limite tempo"
+                        print(f"[WARNING] B&B interrotto: {reason}. Miglior UB trovato: {self._best_ub}")
+                        break
+
+                    if lb >= self._best_ub:
+                        continue 
+                    
+                    # --- BRANCHING ---
+                    var = self._select_best_variable(config, critical_activities)
+                    if var is None:
+                        # Abbiamo raggiunto una foglia (tutti i valori sono fissati o non ci sono più intervalli)
+                        fixed = self._fix_config_for_ub(config)
+                        sol = self._compute_ub(fixed["durations"], fixed["resources"], fixed["release_dates"], fixed["due_dates"])
+                        best_inner = sol.get("best", {}).get("best", {})
+                        if isinstance(best_inner, dict):
+                            ub_score = best_inner.get("score", float("inf"))
+                            if ub_score < self._best_ub:
+                                self._best_ub = ub_score
+                                self._best_config = copy.deepcopy(fixed)
+                                self._best_solution_orchestrator = sol
+                                print(f"[DEBUG #{self._n_chiamate}] Nuova Foglia Migliore: {self._best_ub}")
+                        continue
+                    
+                    field, i = var
+                    val = config[field][i]
+                    low, high = val
+                    
+                    # Branching strategy: create two children and evaluate their LB/critical activities
+                    for choice in [low, high]:
+                        conf_new = copy.deepcopy(config)
+                        conf_new[field][i] = choice
+                        
+                        # Evaluate child
+                        fixed_new = self._fix_config_for_ub(conf_new)
+                        try:
+                            proc_new = _pre_processing_rcpsp_max(
+                                n=self.base_data.n, durations=fixed_new["durations"], precedences=self.base_data.precedences,
+                                resources=fixed_new["resources"], consumption=self.base_data.consumption, horizon=self.base_data.horizon,
+                                release_dates=fixed_new["release_dates"], due_dates=fixed_new["due_dates"]
+                            )
+                            lb_new, crit_new = self._compute_lb(
+                                proc_new.n, proc_new.durations, proc_new.precedences, 
+                                proc_new.consumption, proc_new.resources, proc_new.release_dates
+                            )
+                            
+                            if lb_new < self._best_ub:
+                                node_counter += 1
+                                # Heuristic update: if node is very promising, try to find a full solution (UB)
+                                if node_counter % 250 == 0: # Ogni tanto prova a cercare una soluzione anche non in foglia
+                                    sol_heur = self._compute_ub(fixed_new["durations"], fixed_new["resources"], fixed_new["release_dates"], fixed_new["due_dates"])
+                                    inner_heur = sol_heur.get("best", {}).get("best", {})
+                                    if isinstance(inner_heur, dict) and inner_heur.get("score", float("inf")) < self._best_ub:
+                                        self._best_ub = inner_heur["score"]
+                                        self._best_config = copy.deepcopy(fixed_new)
+                                        self._best_solution_orchestrator = sol_heur
+                                        print(f"[DEBUG #{self._n_chiamate}] Nuovo UB euristico trovato: {self._best_ub}")
+
+                                heapq.heappush(queue, (lb_new, node_counter, conf_new, crit_new))
+                        except:
+                            continue
+                    
+                    # Feedback periodico
+                    if curr_time - last_log_time > self.log_interval:
+                        nodes_per_sec = self._n_chiamate / elapsed if elapsed > 0 else 0
+                        print(f"[PROGRESS] Nodi: {self._n_chiamate} | Coda: {len(queue)} | Best UB: {self._best_ub:.2f} | LB: {lb:.2f} | Speed: {nodes_per_sec:.1f} n/s")
+                        last_log_time = curr_time
+                
                 end_time = time()
-                print(f"Numero chiamate del branch: {self._n_chiamate}")
-                print(f"Tempo totale: {(end_time - start_time) / 60:.2f} minuti")
-                return None
+                print(f"B&B Terminato. Nodi esplorati: {self._n_chiamate} | Tempo: {(end_time - start_time) / 60:.2f} min")
+                return self.best_solution()
 
-    def _branch(self, config, var_index=0):
-
-        self._n_chiamate += 1
-
-        # Controllo se la configurazione è già stata visitata
-        key = (
-            tuple(config["durations"]),
-            tuple(config["resources"]),
-            tuple(config["release_dates"]),
-            tuple(config["due_dates"])
-        )
-
-        if key in self._visited:
-            print(f"[DEBUG #{self._n_chiamate}] Nodo già visitato -> skip")
-            return
+    def _select_best_variable(self, config, critical_activities):
+        """Seleziona la variabile con intervallo dando priorità a quelle critiche e con intervallo più grande."""
+        best_var = None
+        max_diff = -1
         
-        self._visited.add(key)
+        # Priorità 1: Attività critiche
+        for field in ["durations", "resources", "release_dates", "due_dates"]:
+            for i, val in enumerate(config[field]):
+                if isinstance(val, tuple) and i in critical_activities:
+                    diff = val[1] - val[0]
+                    if diff > max_diff:
+                        max_diff = diff
+                        best_var = (field, i)
+        
+        if best_var:
+            return best_var
 
-        # Fisso i dati per il calcolo dell'UB e LB
+        # Priorità 2: Qualsiasi altra attività con intervallo
+        for field in ["durations", "resources", "release_dates", "due_dates"]:
+            for i, val in enumerate(config[field]):
+                if isinstance(val, tuple):
+                    diff = val[1] - val[0]
+                    if diff > max_diff:
+                        max_diff = diff
+                        best_var = (field, i)
+        
+        return best_var
+
+    def _estimate_lb_for_config(self, config):
         fixed = self._fix_config_for_ub(config)
-        # print(f"[DEBUG #{self._n_chiamate}] Config attuale: {config}")
-        # print(f"[DEBUG #{self._n_chiamate}] Config fixed usata: {fixed}")
-
-        # ---------- LB ----------
-
-        processed = _pre_processing_rcpsp_max(
-            n=self.base_data.n,
-            durations=fixed["durations"],
-            precedences=self.base_data.precedences,
-            resources=fixed["resources"],
-            consumption=self.base_data.consumption,
-            horizon=self.base_data.horizon,
-            release_dates=fixed["release_dates"],
-            due_dates=fixed["due_dates"]
-        )
-
-        LB = self._compute_lb(
-            processed.n,
-            processed.durations,
-            processed.precedences,
-            processed.consumption,
-            processed.resources,
-            processed.release_dates
-        )
-
-        print(f"[DEBUG #{self._n_chiamate}] LB={LB} | best_ub={self._best_ub} | pruning={'SI' if LB > self._best_ub else 'NO'}")
-
-        # pruning
-        if LB >= self._best_ub:
-            return
-
-        # ---------- UB ----------
-        sol = self._compute_ub(
-            fixed["durations"],
-            fixed["resources"],
-            fixed["release_dates"],
-            fixed["due_dates"]
-        )
-
-        UB_score = sol.get("best").get("best").get("score", float("inf")) if isinstance(sol.get("best").get("best"), dict) else float("inf")
-        penalita = sol.get("best").get("best").get("penalità", float("inf"))
-
-        print(f"[DEBUG #{self._n_chiamate}] UB_score={UB_score} | penalità={penalita}")
-
-        if UB_score < self._best_ub:
-            self._best_ub = UB_score
-            self._best_config = copy.deepcopy(fixed)
-            self._best_solution_orchestrator = sol
-
-        if var_index == len(self._variables):
-            return
-
-        # ---------- branching ----------
-        var = self._variables[var_index]
-        print(f"[DEBUG #{self._n_chiamate}] Variabile di branch selezionata: {var}")
-
-        if var is None:
-            print(f"[DEBUG #{self._n_chiamate}] Nessuna variabile -> nodo foglia")
-            return  # tutto fissato
-
-        field, i = var
-        val = config[field][i]
-        print(f"[DEBUG #{self._n_chiamate}] Branch su {field}[{i}] = {val}")
-        if not isinstance(val, tuple):
-            self._branch(config, var_index + 1)
-            return 
-        
-        low, high = val
-        print(f"[DEBUG #{self._n_chiamate}] LOW={low}, HIGH={high}")
-
-        # LOW branch
-        new_config = copy.deepcopy(config)
-        new_config[field][i] = low
-        self._branch(new_config, var_index + 1)
-
-        # HIGH branch
-        new_config = copy.deepcopy(config)
-        new_config[field][i] = high
-        self._branch(new_config, var_index + 1)
-            
-    def _compute_list_variables(self):
-
-        self._variables = []
-
-        for i, d in enumerate(self.base_data.durations):
-            if isinstance(d, tuple):
-                self._variables.append(("durations", i))
-
-        for i, r in enumerate(self.base_data.resources):
-            if isinstance(r, tuple):
-                self._variables.append(("resources", i))
-
-        for i, rd in enumerate(self.base_data.release_dates):
-            if isinstance(rd, tuple):
-                self._variables.append(("release_dates", i))
-
-        for i, dd in enumerate(self.base_data.due_dates):
-            if isinstance(dd, tuple):
-                self._variables.append(("due_dates", i))
+        try:
+            processed = _pre_processing_rcpsp_max(
+                n=self.base_data.n, durations=fixed["durations"], precedences=self.base_data.precedences,
+                resources=fixed["resources"], consumption=self.base_data.consumption, horizon=self.base_data.horizon,
+                release_dates=fixed["release_dates"], due_dates=fixed["due_dates"]
+            )
+            lb, _ = self._compute_lb(
+                processed.n, processed.durations, processed.precedences, 
+                processed.consumption, processed.resources, processed.release_dates
+            )
+            return lb
+        except:
+            return float("inf")
     
     def _fix_config_for_ub(self, config):
         """Fisso la config per il calcolo dell'UB. Considero lo stesso scenario iniziale, quindi quello più ottimistico."""
@@ -225,7 +257,7 @@ class BranchAndBoundSolver:
 
     def _compute_lb(self, n, durations, precedences, consumption, resources, release_dates):
 
-        lb_cpm = self._compute_cpm_lb(
+        lb_cpm, critical_activities = self._compute_cpm_lb(
             n=n,
             durations=durations,
             precedences=precedences,
@@ -238,22 +270,18 @@ class BranchAndBoundSolver:
             resources=resources
         )
 
-        return max(lb_cpm, lb_res)
+        final_lb = max(lb_cpm, lb_res)
+        return final_lb, critical_activities
 
     def _compute_cpm_lb(self, n, durations, precedences, release_dates):
         
         G = nx.DiGraph()
-
         activities = list(range(n))
-
-        # Aggiunta nodi
         G.add_nodes_from(activities)
 
-        # Aggiunta archi e precedenze
         for (i, j, min_lag, _) in precedences:
-            G.add_edge(i, j, weight=min_lag)         # Il peso è solamente il min_lag, perchè il preprocessing converte tutte le precedenze in start_to_start comprendenti delle durate dei job  
+            G.add_edge(i, j, weight=min_lag)
 
-        # Aggiunta release dates
         for i in activities:
             if release_dates[i] is not None:
                 rd = release_dates[i]
@@ -262,11 +290,9 @@ class BranchAndBoundSolver:
                 else:
                     G.add_edge(0, i, weight=rd)
         
-        # Check del DAG (Directed Acyclic Graph)
         if not nx.is_directed_acyclic_graph(G):
             raise ValueError("Il grafo delle attività e delle precedenze contiene cicli, impossibile calcolare il CPM.")
         
-        # Calcolo del percorso critico (longest path) usando ordinamento topologico
         topo_order = list(nx.topological_sort(G))
         dist = {i: float("-inf") for i in activities}
         dist[0] = 0
@@ -274,12 +300,29 @@ class BranchAndBoundSolver:
         for u in topo_order:
             for v in G.successors(u):
                 w = G[u][v]["weight"]
-                dist[v] = max(dist[v], dist[u] + w)
+                if dist[u] + w > dist[v]:
+                    dist[v] = dist[u] + w
 
-        # Makespan = max(start_i + durata_i)
-        makespan_lb = max(dist[i] + durations[i] for i in activities)
+        finish_times = {i: dist[i] + durations[i] for i in activities}
+        makespan_lb = max(finish_times.values())
 
-        return makespan_lb
+        # Identificazione attività critiche (quelle che determinano il makespan)
+        critical_activities = set()
+        for i in activities:
+            if finish_times[i] == makespan_lb:
+                # Questa attività finisce al tempo del makespan, è potenzialmente critica
+                critical_activities.add(i)
+                # Risaliamo all'indietro per trovare tutti i predecessori critici
+                stack = [i]
+                while stack:
+                    curr = stack.pop()
+                    for pred in G.predecessors(curr):
+                        if dist[curr] == dist[pred] + G[pred][curr]["weight"]:
+                            if pred not in critical_activities:
+                                critical_activities.add(pred)
+                                stack.append(pred)
+
+        return makespan_lb, critical_activities
 
     def _compute_resource_bound_lb(self, durations, consumption, resources):
         
