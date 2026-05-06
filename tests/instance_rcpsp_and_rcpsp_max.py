@@ -127,10 +127,18 @@ class Instance:
         prec = ["FS", "SS", "SF", "FF"]
         for (i, j) in precedences_rcpsp:
             if random.random() > 0.8:
-                max_lag = durations[i] + int(random.random() * durations[i] // 2)
+                max_lag_val = durations[i] + int(random.random() * durations[i] // 2)
+            else:
+                max_lag_val = None
+                
+            lag = 2 # Valore minimo per testare RCPSP/Max senza eccedere l'orizzonte
+            if max_lag_val is not None:
+                # Mantieni lo slack originale rispetto alla durata
+                slack = max_lag_val - durations[i]
+                max_lag = lag + max(1, slack)
             else:
                 max_lag = None
-            precedences_rcpsp_max.append((i, j, prec[random.randint(0,3)], durations[i], max_lag))
+            precedences_rcpsp_max.append((i, j, "FS", lag, max_lag))
 
         horizon = sum(durations[i] for i in activities)
 
@@ -196,18 +204,24 @@ class Instance:
         ]
 
         # Conversione in RCPSP/Max
+        # Nota: usiamo 'low' (durata minima) come lag FS, così il vincolo
+        # start_j >= start_i + dur_i + low è sempre soddisfacibile anche
+        # quando il B&B fissa le durate al valore minimo.
+        # Il max_lag è garantito > lag (almeno +1) per evitare finestre a zero larghezza.
         precedences_rcpsp_max = []
-        prec = ["FS", "SS", "SF", "FF"]
         for (i,j) in precedences_rcpsp:
             if isinstance(durations[i], tuple):
-                _, high = durations[i]
+                low, high = durations[i]
             else:
-                high = durations[i]
+                low = high = durations[i]
+            lag = 2 # Valore minimo per testare RCPSP/Max
             if random.random() > 0.8:
-                max_lag = high + int(random.random() * high // 2)
+                # Garantisce max_lag > lag con un po' di respiro
+                extra = max(2, int(random.random() * (high - low + 2)) + 2)
+                max_lag = lag + extra
             else:
                 max_lag = None
-            precedences_rcpsp_max.append((i,j,"FS",high,max_lag))
+            precedences_rcpsp_max.append((i,j,"FS",lag,max_lag))
 
         horizon = 0
         for i in activities:

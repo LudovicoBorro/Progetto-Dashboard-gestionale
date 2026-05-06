@@ -91,7 +91,21 @@ def run_orchestrator_test(test_id, name, data_func, **params):
         # Estrazione dati per validazione
         if isinstance(res, dict):
             best_sol_wrapper = res.get('best', {})
-            best_sol = best_sol_wrapper.get('best') if isinstance(best_sol_wrapper, dict) else best_sol_wrapper
+            res_type = res.get('type', '')
+            if res_type == 'exact':
+                # Il modello esatto ha struttura diversa: res['best'] = {'solution':{}, 'makespan': int, 'schedule': [...], ...}
+                # Non c'è una chiave 'best' annidata, la schedule è in 'schedule' non in 'soluzione'
+                if isinstance(best_sol_wrapper, dict) and best_sol_wrapper.get('makespan') is not None:
+                    best_sol = {
+                        'makespan': best_sol_wrapper.get('makespan'),
+                        'penalità': None,
+                        'soluzione': best_sol_wrapper.get('schedule', [])
+                    }
+                else:
+                    best_sol = None
+            else:
+                # Modello euristico o fallback: res['best']['best'] contiene la soluzione
+                best_sol = best_sol_wrapper.get('best') if isinstance(best_sol_wrapper, dict) else best_sol_wrapper
             val_dur = durations
             val_res = resources
             val_rd, val_dd = rd, dd

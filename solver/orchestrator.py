@@ -119,13 +119,10 @@ class SolverOrchestrator:
             }
             b_and_b = BranchAndBoundSolver(self, **config)
             result = b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
-            if result is None:
-                best_solution = b_and_b.best_solution()
-                if best_solution is None:
-                    raise RuntimeError("Il branch and bound non ha trovato una soluzione fattibile.")
-                return best_solution
-            else:
-                return result
+            best_solution = b_and_b.best_solution()
+            if best_solution is None:
+                raise RuntimeError("Il branch and bound non ha trovato una soluzione fattibile.")
+            return best_solution
 
         if rcpsp_max:
             try:

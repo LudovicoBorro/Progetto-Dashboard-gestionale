@@ -1,45 +1,56 @@
 === RCPSP/MAX SOLVER STRESS TEST REPORT ===
-Timestamp: 2026-05-05 19:18:07
+Timestamp: 2026-05-06 15:33:22
 
 
 [H1] TEST CASE: Standard RCPSP/Max (Heuristic)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': True}
-RESULT: CRASHED (ValueError: Vincoli temporali inconsistenti (positive cycle nei time-lag).)
-Traceback (most recent call last):
-  File "C:\Users\ludov\Documents\Esercizi programmazione\Python\Progetto Dashboard gestionale\scratch\stress_test_orchestrator.py", line 81, in run_orchestrator_test
-    res = so.choose_model(
-        n, durations, prec_max if params.get('rcpsp_max', True) else prec_rcpsp,
-        resources, consumption, horizon, rd, dd, **params
-    )
-  File "C:\Users\ludov\Documents\Esercizi programmazione\Python\Progetto Dashboard gestionale\solver\orchestrator.py", line 135, in choose_model
-    raise e
-  File "C:\Users\ludov\Documents\Esercizi programmazione\Python\Progetto Dashboard gestionale\solver\orchestrator.py", line 132, in choose_model
-    processed = _pre_processing_rcpsp_max(n, durations, precedences, resources, consumption, horizon, release_dates, due_dates)
-  File "C:\Users\ludov\Documents\Esercizi programmazione\Python\Progetto Dashboard gestionale\solver\preprocessing.py", line 129, in _pre_processing_rcpsp_max
-    val_inputs_rcpsp_max(processed)
-    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
-  File "C:\Users\ludov\Documents\Esercizi programmazione\Python\Progetto Dashboard gestionale\utils\validators\validate_input_rcpsp_max.py", line 85, in validate_inputs
-    _check_time_feasibility(precedences, n)
-    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
-  File "C:\Users\ludov\Documents\Esercizi programmazione\Python\Progetto Dashboard gestionale\utils\validators\validate_input_rcpsp_max.py", line 128, in _check_time_feasibility
-    raise ValueError(
-        "Vincoli temporali inconsistenti (positive cycle nei time-lag)."
-    )
-ValueError: Vincoli temporali inconsistenti (positive cycle nei time-lag).
+RESULT: SUCCESS (Makespan: 79, Penalty: 0.0, Time: 2.57s)
+VALIDATION: PASSED
 
 [H2] TEST CASE: Standard RCPSP Classic (Heuristic)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': False}
-RESULT: SUCCESS (Makespan: 59, Penalty: None, Time: 0.62s)
+RESULT: SUCCESS (Makespan: 60, Penalty: None, Time: 0.76s)
 VALIDATION: PASSED
 
 [B1] TEST CASE: Intervals Minimal (B&B)
 --------------------------------------------------
 Parameters: {'instant_sol': False, 'has_intervals': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 31, Penalty: 6.0, Time: 0.28s)
+RESULT: SUCCESS (Makespan: 31, Penalty: 6.0, Time: 0.21s)
 VALIDATION: PASSED
 
 [B2] TEST CASE: Intervals Large (Fast B&B)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'has_intervals': True, 'rcpsp_max': True}
+RESULT: SUCCESS (Makespan: 84, Penalty: 0.0, Time: 111.69s)
+VALIDATION: PASSED
+
+[W1] TEST CASE: Weight Variation (Res focus)
+--------------------------------------------------
+Parameters: {'instant_sol': True, 'rcpsp_max': True, 'resource_weight': 5, 'time_weight': 0.1}
+RESULT: SUCCESS (Makespan: 84, Penalty: 0.0, Time: 2.58s)
+VALIDATION: PASSED
+
+[P1] TEST CASE: Priority Rule (MTS)
+--------------------------------------------------
+Parameters: {'instant_sol': True, 'rcpsp_max': True, 'priority_rule': 'mts'}
+RESULT: SUCCESS (Makespan: 72, Penalty: 0.0, Time: 2.16s)
+VALIDATION: PASSED
+
+[P2] TEST CASE: Priority Rule (GRD)
+--------------------------------------------------
+Parameters: {'instant_sol': True, 'rcpsp_max': True, 'priority_rule': 'grd'}
+RESULT: SUCCESS (Makespan: 81, Penalty: 0.0, Time: 2.07s)
+VALIDATION: PASSED
+
+[E1] TEST CASE: Exact Model (Classic)
+--------------------------------------------------
+Parameters: {'instant_sol': False, 'rcpsp_max': False}
+RESULT: SUCCESS (Makespan: 57, Penalty: None, Time: 0.14s)
+VALIDATION: PASSED
+
+==================================================
+FINAL SUMMARY: 8/8 tests passed
+Total Suite Time: 122.56s
+==================================================
