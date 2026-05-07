@@ -4,3 +4,7 @@ source =
     core
     solver
     utils
+    data
+omit = 
+    tests/*
+    */__init__.py

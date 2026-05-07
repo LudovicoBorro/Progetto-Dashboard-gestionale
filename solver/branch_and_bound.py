@@ -398,9 +398,7 @@ class BranchAndBoundSolver:
             G.add_edge(i, j, weight=min_lag)
 
         for i in activities:
-            if i == 0:
-                continue
-            if release_dates[i] is not None:
+            if i != 0 and release_dates[i] is not None:
                 rd = release_dates[i]
                 if G.has_edge(0, i):
                     G[0][i]["weight"] = max(G[0][i]["weight"], rd)

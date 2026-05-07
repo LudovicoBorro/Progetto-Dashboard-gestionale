@@ -80,17 +80,17 @@ def _check_tipo(soluzione, expected_types):
     assert soluzione["problem_difficulty"] in ("easy", "medium", "hard")
 
 def _check_makespan(soluzione):
-    best = soluzione["best"]
-    assert "makespan" in best
-    assert best["makespan"] > 0
+    # 'best' è il contenitore, 'best.best' è la soluzione singola migliore
+    best_sol = soluzione["best"]["best"]
+    assert "makespan" in best_sol
+    assert best_sol["makespan"] > 0
 
 def _check_schedule(soluzione, n):
-    best = soluzione["best"]
-    schedule = best.get("schedule")
+    best_sol = soluzione["best"]["best"]
+    # Pydantic dump usa il nome del campo 'soluzione'
+    schedule = best_sol.get("soluzione") or best_sol.get("schedule")
+    
     assert isinstance(schedule, list)
-    if "schedule" in best:
-        schedule = best["schedule"]
-
     assert len(schedule) == n + 2
 
     for dizio in schedule:
@@ -114,20 +114,15 @@ def _check_multistart(soluzione, tipo, diff):
 
             assert value.get("success") + int(value.get("failures")) == runs
 
-def _check_solutions(best, top_k):
+def _check_solutions(best_container, top_k):
+    # best_container è soluzione["best"]
+    assert best_container.get("best") is not None
 
-    if "best" in best:
-        best_sol = best["best"]
-    else:
-        best_sol = best
+    if best_container.get("top_k_makespan") is not None:
+            assert len(best_container["top_k_makespan"]) <= top_k
 
-    assert best_sol is not None
-
-    if best.get("top_k_makespan") is not None:
-            assert len(best["top_k_makespan"]) <= top_k
-
-    if best.get("best").get("top_k_score") is not None:
-        assert len(best["top_k_score"]) <= top_k
+    if best_container.get("top_k_score") is not None:
+        assert len(best_container["top_k_score"]) <= top_k
 
 def _check_exact(soluzione, n):
 
