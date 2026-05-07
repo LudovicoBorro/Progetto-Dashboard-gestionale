@@ -1,63 +1,56 @@
 === RCPSP/MAX SOLVER STRESS TEST REPORT ===
-Timestamp: 2026-05-06 20:44:06
+Timestamp: 2026-05-07 08:16:18
 
 
 [H1] TEST CASE: Standard RCPSP/Max (Heuristic)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 83, Penalty: 0.0, Time: 0.80s)
+RESULT: SUCCESS (Makespan: 76, Penalty: 0.0, Time: 1.09s)
 VALIDATION: PASSED
 
 [H2] TEST CASE: Standard RCPSP Classic (Heuristic)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': False}
-RESULT: SUCCESS (Makespan: 60, Penalty: None, Time: 0.26s)
+RESULT: SUCCESS (Makespan: 60, Penalty: None, Time: 0.35s)
 VALIDATION: PASSED
 
 [B1] TEST CASE: Intervals Minimal (B&B)
 --------------------------------------------------
 Parameters: {'instant_sol': False, 'has_intervals': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 31, Penalty: 6.0, Time: 0.08s)
+RESULT: SUCCESS (Makespan: 31, Penalty: 6.0, Time: 0.07s)
 VALIDATION: PASSED
 
 [B2] TEST CASE: Intervals Large (Fast B&B)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'has_intervals': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 82, Penalty: 2.2222222222222223, Time: 39.41s)
-VALIDATION: FAILED (2 errors)
-  !! Prec 19->22: start_22(57) > s_19+7(56)
-  !! Time 59, Res 0: usage 15 > cap 13
+RESULT: SUCCESS (Makespan: 82, Penalty: 0.0, Time: 54.12s)
+VALIDATION: PASSED
 
 [W1] TEST CASE: Weight Variation (Res focus)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': True, 'resource_weight': 5, 'time_weight': 0.1}
-RESULT: SUCCESS (Makespan: 81, Penalty: 8.733333333333333, Time: 0.78s)
-VALIDATION: FAILED (7 errors)
-  !! Prec 4->10: start_10(9) > s_4+5(5)
-  !! Time 9, Res 0: usage 18 > cap 15
-  !! Time 10, Res 0: usage 18 > cap 15
-  !! Time 11, Res 0: usage 18 > cap 15
-  !! Time 12, Res 0: usage 18 > cap 15
+RESULT: SUCCESS (Makespan: 79, Penalty: 0.0, Time: 1.11s)
+VALIDATION: PASSED
 
 [P1] TEST CASE: Priority Rule (MTS)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': True, 'priority_rule': 'mts'}
-RESULT: SUCCESS (Makespan: 83, Penalty: 0.0, Time: 0.76s)
+RESULT: SUCCESS (Makespan: 90, Penalty: 0.0, Time: 1.10s)
 VALIDATION: PASSED
 
 [P2] TEST CASE: Priority Rule (GRD)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': True, 'priority_rule': 'grd'}
-RESULT: SUCCESS (Makespan: 75, Penalty: 0.0, Time: 0.75s)
+RESULT: SUCCESS (Makespan: 76, Penalty: 0.0, Time: 1.04s)
 VALIDATION: PASSED
 
 [E1] TEST CASE: Exact Model (Classic)
 --------------------------------------------------
 Parameters: {'instant_sol': False, 'rcpsp_max': False}
-RESULT: SUCCESS (Makespan: 57, Penalty: None, Time: 0.07s)
+RESULT: SUCCESS (Makespan: 57, Penalty: None, Time: 0.14s)
 VALIDATION: PASSED
 
 ==================================================
-FINAL SUMMARY: 6/8 tests passed
-Total Suite Time: 42.93s
+FINAL SUMMARY: 8/8 tests passed
+Total Suite Time: 59.08s
 ==================================================
