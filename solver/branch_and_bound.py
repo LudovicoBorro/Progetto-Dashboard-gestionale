@@ -96,7 +96,7 @@ class BranchAndBoundSolver:
                 }
                 
                 # Calcolo LB iniziale per la coda
-                fixed_init = self._fix_config_for_ub(initial_config)
+                fixed_init = self._fix_config_for_lb(initial_config)
                 try:
                     proc_init = _pre_processing_rcpsp_max(
                         n=self.base_data.n, durations=fixed_init["durations"], precedences=self.base_data.precedences,
@@ -107,10 +107,11 @@ class BranchAndBoundSolver:
                         proc_init.n, proc_init.durations, proc_init.precedences, 
                         proc_init.consumption, proc_init.resources, proc_init.release_dates
                     )
+                    print(f"[DEBUG] LB iniziale calcolato: {lb_init:.2f}")
                     # Inserisco il nodo radice
                     heapq.heappush(queue, (lb_init, 0, initial_config, crit_init)) # 0 è un counter
-                except:
-                    print("[ERROR] Impossibile inizializzare il B&B (preprocessing fallito)")
+                except (ValueError, RuntimeError) as e:
+                    print(f"[ERROR] Preprocessing fallito: {e}")
                     return None
                 
                 node_counter = 0
@@ -120,7 +121,11 @@ class BranchAndBoundSolver:
                 while queue:
                     lb, _, config, critical_activities = heapq.heappop(queue)
                     self._n_chiamate += 1
-                    
+
+                    # DEBUG: Log del nodo estratto (solo primi 50 nodi)
+                    if self._n_chiamate <= 50:
+                        print(f"[DEBUG] Nodo #{self._n_chiamate} estratto - LB: {lb:.2f}, UB corrente: {self._best_ub:.2f}, Coda rimanente: {len(queue)}")
+
                     # Controllo limiti
                     curr_time = time()
                     elapsed = curr_time - start_time
@@ -130,12 +135,24 @@ class BranchAndBoundSolver:
                         break
 
                     if lb >= self._best_ub:
-                        continue 
+                        if self._n_chiamate <= 50:
+                            print(f"[DEBUG] Nodo #{self._n_chiamate} tagliato: LB {lb:.2f} >= UB {self._best_ub:.2f}")
+                        continue
+                    
+                    # Taglio aggressivo: se LB è molto lontano dall'UB, scarta
+                    # if self._best_ub - lb > 20:  # Se la differenza è > 20, probabilmente non conviene esplorare
+                        # if self._n_chiamate <= 50:
+                            # print(f"[DEBUG] Nodo #{self._n_chiamate} tagliato aggressivo: LB {lb:.2f}, UB {self._best_ub:.2f}, diff {self._best_ub - lb:.2f}")
+                        # continue 
                     
                     # --- BRANCHING ---
                     var = self._select_best_variable(config, critical_activities)
+                    if self._n_chiamate <= 50:
+                        print(f"[DEBUG] Nodo #{self._n_chiamate} - Variabile selezionata: {var}")
                     if var is None:
                         # Abbiamo raggiunto una foglia (tutti i valori sono fissati o non ci sono più intervalli)
+                        if self._n_chiamate <= 50:
+                            print(f"[DEBUG] Nodo #{self._n_chiamate} è una foglia - Calcolo UB finale")
                         fixed = self._fix_config_for_ub(config)
                         sol = self._compute_ub(fixed["durations"], fixed["resources"], fixed["release_dates"], fixed["due_dates"])
                         best_inner = sol.get("best", {}).get("best", {})
@@ -151,14 +168,19 @@ class BranchAndBoundSolver:
                     field, i = var
                     val = config[field][i]
                     low, high = val
-                    
+                    if self._n_chiamate <= 50:
+                        print(f"[DEBUG] Branching su {field}[{i}] = [{low}, {high}]")
+
                     # Branching strategy: create two children and evaluate their LB/critical activities
+                    children_added = 0
                     for choice in [low, high]:
                         conf_new = copy.deepcopy(config)
                         conf_new[field][i] = choice
-                        
+                        if self._n_chiamate <= 50:
+                            print(f"[DEBUG] Figlio #{children_added+1}: {field}[{i}] = {choice}")
+
                         # Evaluate child
-                        fixed_new = self._fix_config_for_ub(conf_new)
+                        fixed_new = self._fix_config_for_lb(conf_new)
                         try:
                             proc_new = _pre_processing_rcpsp_max(
                                 n=self.base_data.n, durations=fixed_new["durations"], precedences=self.base_data.precedences,
@@ -169,9 +191,13 @@ class BranchAndBoundSolver:
                                 proc_new.n, proc_new.durations, proc_new.precedences, 
                                 proc_new.consumption, proc_new.resources, proc_new.release_dates
                             )
-                            
+                            if self._n_chiamate <= 50:
+                                print(f"[DEBUG] Figlio LB: {lb_new:.2f}, UB corrente: {self._best_ub:.2f}")
+
                             if lb_new < self._best_ub:
                                 node_counter += 1
+                                if self._n_chiamate <= 50:
+                                    print(f"[DEBUG] Figlio aggiunto alla coda (LB {lb_new:.2f} < UB {self._best_ub:.2f})")
                                 # Heuristic update: if node is very promising, try to find a full solution (UB)
                                 if node_counter % 250 == 0: # Ogni tanto prova a cercare una soluzione anche non in foglia
                                     sol_heur = self._compute_ub(fixed_new["durations"], fixed_new["resources"], fixed_new["release_dates"], fixed_new["due_dates"])
@@ -183,13 +209,19 @@ class BranchAndBoundSolver:
                                         print(f"[DEBUG #{self._n_chiamate}] Nuovo UB euristico trovato: {self._best_ub}")
 
                                 heapq.heappush(queue, (lb_new, node_counter, conf_new, crit_new))
-                        except:
+                                children_added += 1
+                            else:
+                                if self._n_chiamate <= 50:
+                                    print(f"[DEBUG] Figlio scartato (LB {lb_new:.2f} >= UB {self._best_ub:.2f})")
+                        except Exception as e:
+                            if self._n_chiamate <= 50:
+                                print(f"[DEBUG] Figlio errore preprocessing: {e}")
                             continue
-                    
-                    # Feedback periodico
-                    if curr_time - last_log_time > self.log_interval:
+
+                    if self._n_chiamate <= 50:
+                        print(f"[DEBUG] Nodo #{self._n_chiamate} - Figli aggiunti: {children_added}, Coda ora: {len(queue)}")
                         nodes_per_sec = self._n_chiamate / elapsed if elapsed > 0 else 0
-                        print(f"[PROGRESS] Nodi: {self._n_chiamate} | Coda: {len(queue)} | Best UB: {self._best_ub:.2f} | LB: {lb:.2f} | Speed: {nodes_per_sec:.1f} n/s")
+                        print(f"[PROGRESS] Nodi: {self._n_chiamate} | Coda: {len(queue)} | Best UB: {self._best_ub:.2f} | LB corrente: {lb:.2f} | Speed: {nodes_per_sec:.1f} n/s")
                         last_log_time = curr_time
                 
                 end_time = time()
@@ -197,35 +229,65 @@ class BranchAndBoundSolver:
                 return self.best_solution()
 
     def _select_best_variable(self, config, critical_activities):
-        """Seleziona la variabile con intervallo dando priorità a quelle critiche e con intervallo più grande."""
-        best_var = None
-        max_diff = -1
+        """Seleziona la variabile con intervallo dando priorità a quelle critiche e con intervallo più grande.
+        Migliorato: evita di selezionare sempre le stesse variabili, usa strategia round-robin per tipi."""
+        # Strategia round-robin per tipi di variabili per evitare loop
+        field_priority = ["durations", "resources", "release_dates", "due_dates"]
+        current_priority_idx = self._n_chiamate % len(field_priority)
         
-        # Priorità 1: Attività critiche
-        for field in ["durations", "resources", "release_dates", "due_dates"]:
+        best_var = None
+        max_score = -1
+        
+        # Prima priorità: attività critiche nel campo corrente
+        current_field = field_priority[current_priority_idx]
+        for i, val in enumerate(config[current_field]):
+            if isinstance(val, tuple) and i in critical_activities:
+                diff = val[1] - val[0]
+                score = diff * 2  # Bonus per attività critiche
+                if score > max_score:
+                    max_score = score
+                    best_var = (current_field, i)
+        
+        if best_var:
+            return best_var
+            
+        # Seconda priorità: qualsiasi variabile nel campo corrente
+        for i, val in enumerate(config[current_field]):
+            if isinstance(val, tuple):
+                diff = val[1] - val[0]
+                if diff > max_score:
+                    max_score = diff
+                    best_var = (current_field, i)
+        
+        if best_var:
+            return best_var
+            
+        # Terza priorità: attività critiche in altri campi
+        for field in field_priority:
             for i, val in enumerate(config[field]):
                 if isinstance(val, tuple) and i in critical_activities:
                     diff = val[1] - val[0]
-                    if diff > max_diff:
-                        max_diff = diff
+                    score = diff * 1.5  # Bonus ridotto per altri campi
+                    if score > max_score:
+                        max_score = score
                         best_var = (field, i)
         
         if best_var:
             return best_var
-
-        # Priorità 2: Qualsiasi altra attività con intervallo
-        for field in ["durations", "resources", "release_dates", "due_dates"]:
+            
+        # Quarta priorità: qualsiasi altra variabile
+        for field in field_priority:
             for i, val in enumerate(config[field]):
                 if isinstance(val, tuple):
                     diff = val[1] - val[0]
-                    if diff > max_diff:
-                        max_diff = diff
+                    if diff > max_score:
+                        max_score = diff
                         best_var = (field, i)
         
         return best_var
 
     def _estimate_lb_for_config(self, config):
-        fixed = self._fix_config_for_ub(config)
+        fixed = self._fix_config_for_lb(config)
         try:
             processed = _pre_processing_rcpsp_max(
                 n=self.base_data.n, durations=fixed["durations"], precedences=self.base_data.precedences,
@@ -239,6 +301,15 @@ class BranchAndBoundSolver:
             return lb
         except:
             return float("inf")
+    
+    def _fix_config_for_lb(self, config):
+        """Fisso la config per il calcolo del LB. Uso i valori fissati nella config corrente."""
+        return{
+            "durations": [d if not isinstance(d, tuple) else min(d) for d in config["durations"]],
+            "resources": [r if not isinstance(r, tuple) else max(r) for r in config["resources"]],
+            "release_dates": [rd if not isinstance(rd, tuple) else min(rd) for rd in config["release_dates"]],
+            "due_dates": [dd if not isinstance(dd, tuple) else max(dd) for dd in config["due_dates"]],
+        }
     
     def _fix_config_for_ub(self, config):
         """Fisso la config per il calcolo dell'UB. Considero lo stesso scenario iniziale, quindi quello più ottimistico."""
@@ -279,7 +350,10 @@ class BranchAndBoundSolver:
         activities = list(range(n))
         G.add_nodes_from(activities)
 
-        for (i, j, min_lag, _) in precedences:
+        # I max_lag implicano che start_j <= start_i + max_lag
+        # Questo si traduce in: start_i >= start_j - max_lag
+        # Aggiungere arco inverso con peso -max_lag per propagare il vincolo
+        for (i, j, min_lag, max_lag) in precedences:
             G.add_edge(i, j, weight=min_lag)
 
         for i in activities:

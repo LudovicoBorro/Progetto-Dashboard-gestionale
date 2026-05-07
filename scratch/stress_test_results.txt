@@ -1,56 +1,39 @@
 === RCPSP/MAX SOLVER STRESS TEST REPORT ===
-Timestamp: 2026-05-07 08:16:18
+Timestamp: 2026-05-06 22:18:29
 
 
 [H1] TEST CASE: Standard RCPSP/Max (Heuristic)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 76, Penalty: 0.0, Time: 1.09s)
-VALIDATION: PASSED
+RESULT: SUCCESS (Makespan: 78, Penalty: 3.666666666666667, Time: 0.77s)
+VALIDATION: FAILED (4 errors)
+  !! Prec 2->6: start_6(7) > s_2+6(6)
+  !! Time 7, Res 0: usage 22 > cap 15
+  !! Time 8, Res 0: usage 22 > cap 15
+  !! Time 9, Res 0: usage 17 > cap 15
 
 [H2] TEST CASE: Standard RCPSP Classic (Heuristic)
 --------------------------------------------------
 Parameters: {'instant_sol': True, 'rcpsp_max': False}
-RESULT: SUCCESS (Makespan: 60, Penalty: None, Time: 0.35s)
+RESULT: SUCCESS (Makespan: 60, Penalty: None, Time: 0.25s)
 VALIDATION: PASSED
 
 [B1] TEST CASE: Intervals Minimal (B&B)
 --------------------------------------------------
 Parameters: {'instant_sol': False, 'has_intervals': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 31, Penalty: 6.0, Time: 0.07s)
-VALIDATION: PASSED
+RESULT: CRASHED (TypeError: '>' not supported between instances of 'int' and 'NoneType')
+Traceback (most recent call last):
+  File "C:\Users\Dario Lampa\Documents\Esercizi programmazione\Python\Progetto dashboard gestionale\Progetto-Dashboard-gestionale\scratch\stress_test_orchestrator.py", line 91, in run_orchestrator_test
+    res = so.choose_model(
+          ^^^^^^^^^^^^^^^^
+  File "C:\Users\Dario Lampa\Documents\Esercizi programmazione\Python\Progetto dashboard gestionale\Progetto-Dashboard-gestionale\solver\orchestrator.py", line 123, in choose_model
+    result = b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dario Lampa\Documents\Esercizi programmazione\Python\Progetto dashboard gestionale\Progetto-Dashboard-gestionale\solver\branch_and_bound.py", line 132, in esplora_soluzioni
+    if self._n_chiamate > self.max_nodes or elapsed > self.max_time:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: '>' not supported between instances of 'int' and 'NoneType'
 
 [B2] TEST CASE: Intervals Large (Fast B&B)
 --------------------------------------------------
-Parameters: {'instant_sol': True, 'has_intervals': True, 'rcpsp_max': True}
-RESULT: SUCCESS (Makespan: 82, Penalty: 0.0, Time: 54.12s)
-VALIDATION: PASSED
-
-[W1] TEST CASE: Weight Variation (Res focus)
---------------------------------------------------
-Parameters: {'instant_sol': True, 'rcpsp_max': True, 'resource_weight': 5, 'time_weight': 0.1}
-RESULT: SUCCESS (Makespan: 79, Penalty: 0.0, Time: 1.11s)
-VALIDATION: PASSED
-
-[P1] TEST CASE: Priority Rule (MTS)
---------------------------------------------------
-Parameters: {'instant_sol': True, 'rcpsp_max': True, 'priority_rule': 'mts'}
-RESULT: SUCCESS (Makespan: 90, Penalty: 0.0, Time: 1.10s)
-VALIDATION: PASSED
-
-[P2] TEST CASE: Priority Rule (GRD)
---------------------------------------------------
-Parameters: {'instant_sol': True, 'rcpsp_max': True, 'priority_rule': 'grd'}
-RESULT: SUCCESS (Makespan: 76, Penalty: 0.0, Time: 1.04s)
-VALIDATION: PASSED
-
-[E1] TEST CASE: Exact Model (Classic)
---------------------------------------------------
-Parameters: {'instant_sol': False, 'rcpsp_max': False}
-RESULT: SUCCESS (Makespan: 57, Penalty: None, Time: 0.14s)
-VALIDATION: PASSED
-
-==================================================
-FINAL SUMMARY: 8/8 tests passed
-Total Suite Time: 59.08s
-==================================================
+Parameters: {'instant_sol': True, 'has_intervals': True, 'rcpsp_max': True, 'max_nodes': 30000, 'max_time': 3600}

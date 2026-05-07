@@ -80,11 +80,17 @@ def run_orchestrator_test(test_id, name, data_func, **params):
     
     so = SolverOrchestrator()
     start_t = time.time()
+
+    max_nodes = params.get("max_nodes")
+    max_time = params.get("max_time")
+    if max_nodes is not None and max_time is not None:
+        params.pop("max_nodes")
+        params.pop("max_time")
     
     try:
         res = so.choose_model(
             n, durations, prec_max if params.get('rcpsp_max', True) else prec_rcpsp,
-            resources, consumption, horizon, rd, dd, **params
+            resources, consumption, horizon, rd, dd, max_nodes=max_nodes, max_time=max_time, **params
         )
         elapsed = time.time() - start_t
         
@@ -164,7 +170,7 @@ if __name__ == "__main__":
         ("B1", "Intervals Minimal (B&B)", Instance.get_raw_instance_with_intervals_minimal, {"instant_sol": False, "has_intervals": True, "rcpsp_max": True}),
         
         # 4. Intervals Large (Fast B&B)
-        ("B2", "Intervals Large (Fast B&B)", Instance.get_raw_instance_with_intervals, {"instant_sol": True, "has_intervals": True, "rcpsp_max": True}),
+        ("B2", "Intervals Large (Fast B&B)", Instance.get_raw_instance_with_intervals, {"instant_sol": True, "has_intervals": True, "rcpsp_max": True, "max_nodes": 30000, "max_time": 3600}),
         
         # 5. Weight Variations (Resource focus)
         ("W1", "Weight Variation (Res focus)", Instance.get_raw_instance, {"instant_sol": True, "rcpsp_max": True, "resource_weight": 5, "time_weight": 0.1}),
