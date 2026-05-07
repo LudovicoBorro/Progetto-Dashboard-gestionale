@@ -170,7 +170,7 @@ if __name__ == "__main__":
         ("B1", "Intervals Minimal (B&B)", Instance.get_raw_instance_with_intervals_minimal, {"instant_sol": False, "has_intervals": True, "rcpsp_max": True}),
         
         # 4. Intervals Large (Fast B&B)
-        ("B2", "Intervals Large (Fast B&B)", Instance.get_raw_instance_with_intervals, {"instant_sol": True, "has_intervals": True, "rcpsp_max": True, "max_nodes": 30000, "max_time": 3600}),
+        ("B2", "Intervals Large (Fast B&B)", Instance.get_raw_instance_with_intervals, {"instant_sol": True, "has_intervals": True, "rcpsp_max": True, "max_nodes": 10000000, "max_time": 18000}),
         
         # 5. Weight Variations (Resource focus)
         ("W1", "Weight Variation (Res focus)", Instance.get_raw_instance, {"instant_sol": True, "rcpsp_max": True, "resource_weight": 5, "time_weight": 0.1}),

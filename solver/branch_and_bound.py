@@ -8,6 +8,7 @@ import networkx as nx
 import math
 import copy
 import heapq
+import logging
 
 class BranchAndBoundSolver:
     def __init__(self, orch, **kwargs):
@@ -26,9 +27,7 @@ class BranchAndBoundSolver:
         self.max_nodes = kwargs.get("max_nodes", 5000)
         self.max_time = kwargs.get("max_time", 600)  # 10 minuti di default
         self.log_interval = kwargs.get("log_interval", 5) # secondi
-        self._visited = set()
         self._n_chiamate = 0
-        self._variables = []
 
     def esplora_soluzioni(self, instant_sol, rcpsp_max):
         # Questa funzione deve preuccuparsi di analizzare per prima cosa i dati in input,
@@ -68,6 +67,7 @@ class BranchAndBoundSolver:
                                         limit_lookahead=self.limit_lookahead, instant_sol=instant_sol, priority_rule=self.priority_rule, rcpsp_max=True)
                 return BestSolutionBAndB(BestConfigBAndB(durations_fixed, resources_fixed, self.base_data.release_dates, self.base_data.due_dates), BestSolutionBAndB(**result))
             else:
+                self._open_log_file()
                 # Inizializzo le durate a min, le risorse a max, le release date a min e le due date a max, e calcolo LB iniziale e UB iniziale
                 self._n_chiamate = 0
                 durations_fixed = self._fix_to_min(self.base_data.durations)
@@ -83,7 +83,7 @@ class BranchAndBoundSolver:
                     self._best_solution_orchestrator = first_ub_result
                     self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
                 
-                print(f"[INIT] Best UB iniziale: {self._best_ub}")
+                logging.info(f"[INIT] Best UB iniziale: {self._best_ub}")
 
                 # --- BEST-FIRST SEARCH ---
                 queue = []
@@ -107,54 +107,58 @@ class BranchAndBoundSolver:
                         proc_init.n, proc_init.durations, proc_init.precedences, 
                         proc_init.consumption, proc_init.resources, proc_init.release_dates
                     )
-                    print(f"[DEBUG] LB iniziale calcolato: {lb_init:.2f}")
+                    logging.debug(f"LB iniziale calcolato: {lb_init:.2f}")
                     # Inserisco il nodo radice
                     heapq.heappush(queue, (lb_init, 0, initial_config, crit_init)) # 0 è un counter
                 except (ValueError, RuntimeError) as e:
-                    print(f"[ERROR] Preprocessing fallito: {e}")
+                    logging.error(f"[ERROR] Preprocessing fallito: {e}")
                     return None
                 
                 node_counter = 0
                 start_time = time()
                 last_log_time = start_time
-                
+
                 while queue:
                     lb, _, config, critical_activities = heapq.heappop(queue)
                     self._n_chiamate += 1
-
-                    # DEBUG: Log del nodo estratto (solo primi 50 nodi)
-                    if self._n_chiamate <= 50:
-                        print(f"[DEBUG] Nodo #{self._n_chiamate} estratto - LB: {lb:.2f}, UB corrente: {self._best_ub:.2f}, Coda rimanente: {len(queue)}")
-
-                    # Controllo limiti
+    
+                    # Log periodico
                     curr_time = time()
                     elapsed = curr_time - start_time
+                    if curr_time - last_log_time >= self.log_interval:
+                        nodes_per_sec = self._n_chiamate / elapsed if elapsed > 0 else 0
+                        open_vars = self._count_open_vars(config)
+                        logging.info(
+                            f"[PROGRESS] Nodi: {self._n_chiamate} | Coda: {len(queue)} | "
+                            f"Best UB: {self._best_ub:.2f} | LB: {lb:.2f} | "
+                            f"Var aperte: {open_vars} | Speed: {nodes_per_sec:.1f} n/s"
+                        )
+                        last_log_time = curr_time
+    
+                    # Controllo limiti
                     if self._n_chiamate > self.max_nodes or elapsed > self.max_time:
                         reason = "Limite nodi" if self._n_chiamate > self.max_nodes else "Limite tempo"
-                        print(f"[WARNING] B&B interrotto: {reason}. Miglior UB trovato: {self._best_ub}")
+                        logging.warning(f"B&B interrotto: {reason}. Miglior UB: {self._best_ub}")
                         break
-
+    
+                    # Pruning standard
                     if lb >= self._best_ub:
-                        if self._n_chiamate <= 50:
-                            print(f"[DEBUG] Nodo #{self._n_chiamate} tagliato: LB {lb:.2f} >= UB {self._best_ub:.2f}")
                         continue
-                    
-                    # Taglio aggressivo: se LB è molto lontano dall'UB, scarta
-                    # if self._best_ub - lb > 20:  # Se la differenza è > 20, probabilmente non conviene esplorare
-                        # if self._n_chiamate <= 50:
-                            # print(f"[DEBUG] Nodo #{self._n_chiamate} tagliato aggressivo: LB {lb:.2f}, UB {self._best_ub:.2f}, diff {self._best_ub - lb:.2f}")
-                        # continue 
-                    
-                    # --- BRANCHING ---
+    
+                    # -----------------------------------------------------------------
+                    # SELEZIONE VARIABILE — FIX 1
+                    # Deterministica: dipende SOLO da config e critical_activities,
+                    # non da _n_chiamate o altri contatori globali.
+                    # -----------------------------------------------------------------
                     var = self._select_best_variable(config, critical_activities)
-                    if self._n_chiamate <= 50:
-                        print(f"[DEBUG] Nodo #{self._n_chiamate} - Variabile selezionata: {var}")
+    
                     if var is None:
-                        # Abbiamo raggiunto una foglia (tutti i valori sono fissati o non ci sono più intervalli)
-                        if self._n_chiamate <= 50:
-                            print(f"[DEBUG] Nodo #{self._n_chiamate} è una foglia - Calcolo UB finale")
+                        # Foglia: tutti gli intervalli sono stati risolti a scalari
                         fixed = self._fix_config_for_ub(config)
-                        sol = self._compute_ub(fixed["durations"], fixed["resources"], fixed["release_dates"], fixed["due_dates"])
+                        sol = self._compute_ub(
+                            fixed["durations"], fixed["resources"],
+                            fixed["release_dates"], fixed["due_dates"]
+                        )
                         best_inner = sol.get("best", {}).get("best", {})
                         if isinstance(best_inner, dict):
                             ub_score = best_inner.get("score", float("inf"))
@@ -162,129 +166,166 @@ class BranchAndBoundSolver:
                                 self._best_ub = ub_score
                                 self._best_config = copy.deepcopy(fixed)
                                 self._best_solution_orchestrator = sol
-                                print(f"[DEBUG #{self._n_chiamate}] Nuova Foglia Migliore: {self._best_ub}")
+                                logging.info(f"LEAF #{self._n_chiamate}] Nuovo best UB: {self._best_ub}")
                         continue
-                    
+    
                     field, i = var
                     val = config[field][i]
                     low, high = val
-                    if self._n_chiamate <= 50:
-                        print(f"[DEBUG] Branching su {field}[{i}] = [{low}, {high}]")
-
-                    # Branching strategy: create two children and evaluate their LB/critical activities
-                    children_added = 0
-                    for choice in [low, high]:
+    
+                    # -----------------------------------------------------------------
+                    # BRANCHING PER SPLITTING — FIX 2
+                    # Divide [low, high] in [low, mid] e [mid+1, high].
+                    # I sotto-intervalli con un solo elemento diventano scalari.
+                    # In questo modo ogni intero è raggiungibile in O(log(high-low)) livelli.
+                    # -----------------------------------------------------------------
+                    left_val, right_val = self._branch_on_interval(low, high)
+    
+                    for branch_val in (left_val, right_val):
                         conf_new = copy.deepcopy(config)
-                        conf_new[field][i] = choice
-                        if self._n_chiamate <= 50:
-                            print(f"[DEBUG] Figlio #{children_added+1}: {field}[{i}] = {choice}")
-
-                        # Evaluate child
+                        conf_new[field][i] = branch_val
+    
+                        # Descrizione leggibile per il log
+                        branch_desc = (
+                            f"[{branch_val[0]},{branch_val[1]}]"
+                            if isinstance(branch_val, tuple)
+                            else str(branch_val)
+                        )
+    
                         fixed_new = self._fix_config_for_lb(conf_new)
                         try:
                             proc_new = _pre_processing_rcpsp_max(
-                                n=self.base_data.n, durations=fixed_new["durations"], precedences=self.base_data.precedences,
-                                resources=fixed_new["resources"], consumption=self.base_data.consumption, horizon=self.base_data.horizon,
-                                release_dates=fixed_new["release_dates"], due_dates=fixed_new["due_dates"]
+                                n=self.base_data.n, durations=fixed_new["durations"],
+                                precedences=self.base_data.precedences,
+                                resources=fixed_new["resources"],
+                                consumption=self.base_data.consumption,
+                                horizon=self.base_data.horizon,
+                                release_dates=fixed_new["release_dates"],
+                                due_dates=fixed_new["due_dates"]
                             )
                             lb_new, crit_new = self._compute_lb(
-                                proc_new.n, proc_new.durations, proc_new.precedences, 
+                                proc_new.n, proc_new.durations, proc_new.precedences,
                                 proc_new.consumption, proc_new.resources, proc_new.release_dates
                             )
-                            if self._n_chiamate <= 50:
-                                print(f"[DEBUG] Figlio LB: {lb_new:.2f}, UB corrente: {self._best_ub:.2f}")
-
+    
                             if lb_new < self._best_ub:
                                 node_counter += 1
-                                if self._n_chiamate <= 50:
-                                    print(f"[DEBUG] Figlio aggiunto alla coda (LB {lb_new:.2f} < UB {self._best_ub:.2f})")
-                                # Heuristic update: if node is very promising, try to find a full solution (UB)
-                                if node_counter % 250 == 0: # Ogni tanto prova a cercare una soluzione anche non in foglia
-                                    sol_heur = self._compute_ub(fixed_new["durations"], fixed_new["resources"], fixed_new["release_dates"], fixed_new["due_dates"])
+    
+                                # UB euristico ogni 250 nodi inseriti
+                                if node_counter % 250 == 0:
+                                    sol_heur = self._compute_ub(
+                                        fixed_new["durations"], fixed_new["resources"],
+                                        fixed_new["release_dates"], fixed_new["due_dates"]
+                                    )
                                     inner_heur = sol_heur.get("best", {}).get("best", {})
-                                    if isinstance(inner_heur, dict) and inner_heur.get("score", float("inf")) < self._best_ub:
+                                    if (isinstance(inner_heur, dict)
+                                            and inner_heur.get("score", float("inf")) < self._best_ub):
                                         self._best_ub = inner_heur["score"]
                                         self._best_config = copy.deepcopy(fixed_new)
                                         self._best_solution_orchestrator = sol_heur
-                                        print(f"[DEBUG #{self._n_chiamate}] Nuovo UB euristico trovato: {self._best_ub}")
-
+                                        logging.info(
+                                            f"[HEUR #{self._n_chiamate}] "
+                                            f"Nuovo UB euristico: {self._best_ub}"
+                                        )
+    
                                 heapq.heappush(queue, (lb_new, node_counter, conf_new, crit_new))
-                                children_added += 1
-                            else:
-                                if self._n_chiamate <= 50:
-                                    print(f"[DEBUG] Figlio scartato (LB {lb_new:.2f} >= UB {self._best_ub:.2f})")
+    
                         except Exception as e:
-                            if self._n_chiamate <= 50:
-                                print(f"[DEBUG] Figlio errore preprocessing: {e}")
+                            # Infeasible dopo preprocessing → ramo scartato silenziosamente
+                            logging.debug(f"[PRUNE] {field}[{i}]={branch_desc} infeasible: {e}")
                             continue
-
-                    if self._n_chiamate <= 50:
-                        print(f"[DEBUG] Nodo #{self._n_chiamate} - Figli aggiunti: {children_added}, Coda ora: {len(queue)}")
-                        nodes_per_sec = self._n_chiamate / elapsed if elapsed > 0 else 0
-                        print(f"[PROGRESS] Nodi: {self._n_chiamate} | Coda: {len(queue)} | Best UB: {self._best_ub:.2f} | LB corrente: {lb:.2f} | Speed: {nodes_per_sec:.1f} n/s")
-                        last_log_time = curr_time
-                
+ 
                 end_time = time()
-                print(f"B&B Terminato. Nodi esplorati: {self._n_chiamate} | Tempo: {(end_time - start_time) / 60:.2f} min")
+                logging.info(
+                    f"[DONE] Nodi esplorati: {self._n_chiamate} | "
+                    f"Tempo: {(end_time - start_time) / 60:.2f} min | "
+                    f"Best UB: {self._best_ub}"
+                )
                 return self.best_solution()
+ 
+    @staticmethod
+    def _count_open_vars(config):
+        """Restituisce il numero di variabili ancora a intervallo nella config."""
+        count = 0
+        for field in ("durations", "resources", "release_dates", "due_dates"):
+            for val in config[field]:
+                if isinstance(val, tuple) and val[0] != val[1]:
+                    count += 1
+        return count
 
     def _select_best_variable(self, config, critical_activities):
-        """Seleziona la variabile con intervallo dando priorità a quelle critiche e con intervallo più grande.
-        Migliorato: evita di selezionare sempre le stesse variabili, usa strategia round-robin per tipi."""
-        # Strategia round-robin per tipi di variabili per evitare loop
+        """
+        Seleziona la variabile (field, index) su cui fare branching.
+ 
+        Criteri in ordine di priorità:
+          1. Attività critiche (contribuiscono al makespan LB)
+          2. Intervallo più ampio (massima incertezza residua)
+          3. Campo con priorità fissa: durations > resources > release_dates > due_dates
+             (le durate influenzano CPM più direttamente)
+ 
+        La selezione dipende SOLO dallo stato della config e da critical_activities,
+        NON da contatori esterni come _n_chiamate — in questo modo è consistente
+        tra nodi fratelli e tra sessioni diverse.
+        """
         field_priority = ["durations", "resources", "release_dates", "due_dates"]
-        current_priority_idx = self._n_chiamate % len(field_priority)
-        
+ 
         best_var = None
-        max_score = -1
-        
-        # Prima priorità: attività critiche nel campo corrente
-        current_field = field_priority[current_priority_idx]
-        for i, val in enumerate(config[current_field]):
-            if isinstance(val, tuple) and i in critical_activities:
-                diff = val[1] - val[0]
-                score = diff * 2  # Bonus per attività critiche
-                if score > max_score:
-                    max_score = score
-                    best_var = (current_field, i)
-        
-        if best_var:
-            return best_var
-            
-        # Seconda priorità: qualsiasi variabile nel campo corrente
-        for i, val in enumerate(config[current_field]):
-            if isinstance(val, tuple):
-                diff = val[1] - val[0]
-                if diff > max_score:
-                    max_score = diff
-                    best_var = (current_field, i)
-        
-        if best_var:
-            return best_var
-            
-        # Terza priorità: attività critiche in altri campi
-        for field in field_priority:
+        # Tupla di confronto: (is_critical, interval_size, -field_idx)
+        # Usiamo -field_idx perché vogliamo preferire indici bassi di field_priority
+        best_score = (-1, -1, float("-inf"))
+ 
+        for field_idx, field in enumerate(field_priority):
             for i, val in enumerate(config[field]):
-                if isinstance(val, tuple) and i in critical_activities:
-                    diff = val[1] - val[0]
-                    score = diff * 1.5  # Bonus ridotto per altri campi
-                    if score > max_score:
-                        max_score = score
-                        best_var = (field, i)
-        
-        if best_var:
-            return best_var
-            
-        # Quarta priorità: qualsiasi altra variabile
-        for field in field_priority:
-            for i, val in enumerate(config[field]):
-                if isinstance(val, tuple):
-                    diff = val[1] - val[0]
-                    if diff > max_score:
-                        max_score = diff
-                        best_var = (field, i)
-        
+                if not isinstance(val, tuple):
+                    continue
+                low, high = val
+                if high <= low:
+                    # Intervallo degenere: sarà normalizzato al prossimo fix, salta
+                    continue
+                interval_size = high - low
+                is_critical = 1 if i in critical_activities else 0
+                # Score più alto = variabile più interessante da rompere
+                score = (is_critical, interval_size, -field_idx)
+                if score > best_score:
+                    best_score = score
+                    best_var = (field, i)
+ 
         return best_var
+    
+    @staticmethod
+    def _branch_on_interval(low, high):
+        """
+        Divide un intervallo intero [low, high] in due rami.
+ 
+        Regole:
+          - Se low == high → già scalare, non dovrebbe arrivare qui
+          - Se adiacenti (high == low + 1) → due scalari: low, high
+          - Altrimenti → (low, mid) e (mid+1, high) dove mid = (low+high)//2
+            I valori risultanti sono scalari se il sotto-intervallo ha dimensione 1,
+            altrimenti rimangono tuple per il branching successivo.
+ 
+        Questo garantisce che ogni intero in [low, high] sia raggiungibile
+        in ceil(log2(high - low + 1)) livelli di profondità.
+ 
+        Esempi:
+          [5, 20] → (5,12),  (13,20)   [entrambi intervalli, 2 livelli ancora]
+          [5,  6] → 5,       6          [due scalari immediati]
+          [5,  7] → (5,6),   7          [intervallo + scalare]
+          [7,  7] → non chiamare questa funzione (val già scalare)
+        """
+        if low == high:
+            raise ValueError(f"_branch_on_interval chiamato con intervallo degenere [{low},{high}]")
+ 
+        mid = (low + high) // 2
+ 
+        # Ramo sinistro: [low, mid]
+        left = low if mid == low else (low, mid)
+ 
+        # Ramo destro: [mid+1, high]
+        right_low = mid + 1
+        right = right_low if right_low == high else (right_low, high)
+ 
+        return left, right
 
     def _estimate_lb_for_config(self, config):
         fixed = self._fix_config_for_lb(config)
@@ -533,3 +574,12 @@ class BranchAndBoundSolver:
         if self._best_ub is None or self._best_config is None or self._best_solution_orchestrator is None:
             return None
         return BestSolutionBAndB(config=self._best_config, solution=SoluzioneOrchestrator(**self._best_solution_orchestrator))
+    
+    @staticmethod
+    def _open_log_file():
+        logging.basicConfig(
+            filename='solver/logs/branch_and_bound_test.log',
+            filemode='a',
+            level=logging.DEBUG,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
