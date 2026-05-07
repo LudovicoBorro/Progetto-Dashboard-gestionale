@@ -59,7 +59,7 @@ class SolverOrchestrator:
 
     def choose_model(self, n: int, durations: list[int | tuple[int, int]], precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]], resources: list[int | tuple[int, int]], 
                      consumption: list[list[int]], horizon: int, release_dates: list[int | tuple[int, int]] = None, due_dates: list[int | tuple[int, int]] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
-                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False, has_intervals: bool = False):
+                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False, has_intervals: bool = False, max_nodes: int = 5000, max_time: int = 600):
         """
         Esegue il preprocessing dei dati e sceglie il modello più appropriato (esatto o euristico)
         in base ai parametri ricevuti dall'utente e alla difficoltà stimata dell'istanza.
@@ -115,7 +115,9 @@ class SolverOrchestrator:
                 "limit_lookahead": limit_lookahead,
                 "instan_sol": instant_sol,
                 "priority_rule": priority_rule,
-                "rcpsp_max": rcpsp_max
+                "rcpsp_max": rcpsp_max,
+                "max_nodes": max_nodes,
+                "max_time": max_time,
             }
             b_and_b = BranchAndBoundSolver(self, **config)
             result = b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
