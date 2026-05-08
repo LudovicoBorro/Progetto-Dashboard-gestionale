@@ -2,5 +2,5 @@ projectKey=Dashboard-gestionale-ottimizzazioni-ufficio-isp
 serverUrl=http://localhost:9000
 serverVersion=26.4.0.121862
 dashboardUrl=http://localhost:9000/dashboard?id=Dashboard-gestionale-ottimizzazioni-ufficio-isp
-ceTaskId=6cc9a6c6-8c37-4266-b2aa-ce4f73cce0fa
-ceTaskUrl=http://localhost:9000/api/ce/task?id=6cc9a6c6-8c37-4266-b2aa-ce4f73cce0fa
+ceTaskId=debd1cc4-cb63-4314-b89a-29fcb8901533
+ceTaskUrl=http://localhost:9000/api/ce/task?id=debd1cc4-cb63-4314-b89a-29fcb8901533
