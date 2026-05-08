@@ -1,4 +1,6 @@
-from solver.dataclasses.base_data_b_and_b import BaseDataBAndB
+from time import perf_counter
+from datetime import datetime
+from solver.dataclasses.input_data import InputData
 from solver.dataclasses.best_config_b_and_b import BestConfigBAndB
 from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
 from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
@@ -11,22 +13,27 @@ import heapq
 import logging
 
 class BranchAndBoundSolver:
-    def __init__(self, orch, **kwargs):
+    def __init__(self, orch, input_data: InputData = None, **kwargs):
         self.orch = orch
-        self.base_data = BaseDataBAndB(**kwargs)
+        if input_data:
+            self.base_data = input_data
+        else:
+            self.base_data = InputData(**kwargs)
         self._best_ub = None
         self._best_config = None
         self._best_solution_orchestrator = None
-        self.top_k = kwargs.get("top_k", 5)
-        self.time_weight = kwargs.get("time_weight", 1)
-        self.resource_weight = kwargs.get("resource_weight", 1)
-        self.priority_weight = kwargs.get("priority_weight", 1)
-        self.tardiness_weight = kwargs.get("tardiness_weight", 1)
-        self.limit_lookahead = kwargs.get("limit_lookahead", 5)
-        self.priority_rule = kwargs.get("priority_rule", "spt")
-        self.max_nodes = kwargs.get("max_nodes", 5000)
-        self.max_time = kwargs.get("max_time", 600)  # 10 minuti di default
-        self.log_interval = kwargs.get("log_interval", 5) # secondi
+        
+        # I parametri sono ora centralizzati in InputData
+        self.top_k = self.base_data.top_k
+        self.time_weight = self.base_data.time_weight
+        self.resource_weight = self.base_data.resource_weight
+        self.priority_weight = self.base_data.priority_weight
+        self.tardiness_weight = self.base_data.tardiness_weight
+        self.limit_lookahead = self.base_data.limit_lookahead
+        self.priority_rule = self.base_data.priority_rule or "spt"
+        self.max_nodes = self.base_data.max_nodes
+        self.max_time = self.base_data.max_time
+        self.log_interval = kwargs.get("log_interval") or 5 # secondi
         self._n_chiamate = 0
 
     def esplora_soluzioni(self, instant_sol, rcpsp_max):
@@ -70,16 +77,18 @@ class BranchAndBoundSolver:
                 self._open_log_file()
                 # Inizializzo le durate a min, le risorse a max, le release date a min e le due date a max, e calcolo LB iniziale e UB iniziale
                 self._n_chiamate = 0
-                durations_fixed = self._fix_to_min(self.base_data.durations)
-                resources_fixed = self._fix_to_max(self.base_data.resources)
-                release_dates_fixed = self._fix_to_min(self.base_data.release_dates)
-                due_dates_fixed = self._fix_to_max(self.base_data.due_dates)
+                config = {"durations": list(self.base_data.durations), "resources": list(self.base_data.resources), "release_dates": list(self.base_data.release_dates), "due_dates": list(self.base_data.due_dates)}
+                self._variabili_totali_aperte = self._count_open_vars(config)
+                durations_fixed = self._fix_to_min(config["durations"])
+                resources_fixed = self._fix_to_max(config["resources"])
+                release_dates_fixed = self._fix_to_min(config["release_dates"])
+                due_dates_fixed = self._fix_to_max(config["due_dates"])
                 
                 self._best_ub = float("inf")
                 first_ub_result = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
                 best_inner = first_ub_result.get("best", {}).get("best", {})
                 if isinstance(best_inner, dict):
-                    self._best_ub = best_inner.get("score", float("inf"))
+                    self._best_ub = self._get_score_from_solution(best_inner)
                     self._best_solution_orchestrator = first_ub_result
                     self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
                 
@@ -97,19 +106,33 @@ class BranchAndBoundSolver:
                 
                 # Calcolo LB iniziale per la coda
                 fixed_init = self._fix_config_for_lb(initial_config)
+                fixed_init_mid = self._fix_config_for_lb_mid(initial_config)
                 try:
+                    start = perf_counter()
                     proc_init = _pre_processing_rcpsp_max(
                         n=self.base_data.n, durations=fixed_init["durations"], precedences=self.base_data.precedences,
                         resources=fixed_init["resources"], consumption=self.base_data.consumption, horizon=self.base_data.horizon,
                         release_dates=fixed_init["release_dates"], due_dates=fixed_init["due_dates"]
                     )
+                    proc_init_mid = _pre_processing_rcpsp_max(
+                        n=self.base_data.n, durations=fixed_init_mid["durations"], precedences=self.base_data.precedences,
+                        resources=fixed_init_mid["resources"], consumption=self.base_data.consumption, horizon=self.base_data.horizon,
+                        release_dates=fixed_init_mid["release_dates"], due_dates=fixed_init_mid["due_dates"]
+                    )
+                    logging.debug(f"Pre-processing completato in {perf_counter() - start:.2f} secondi")
+                    start = perf_counter()
                     lb_init, crit_init = self._compute_lb(
                         proc_init.n, proc_init.durations, proc_init.precedences, 
                         proc_init.consumption, proc_init.resources, proc_init.release_dates
                     )
-                    logging.debug(f"LB iniziale calcolato: {lb_init:.2f}")
+                    heuristic_init_lb, crit_init_mid = self._compute_lb(
+                        proc_init_mid.n, proc_init_mid.durations, proc_init_mid.precedences, 
+                        proc_init_mid.consumption, proc_init_mid.resources, proc_init_mid.release_dates
+                    )
+                    logging.debug(f"LB calcolati in {perf_counter() - start:.2f} secondi")
+                    logging.debug(f"LB euristico e ottimistico iniziale calcolato: {heuristic_init_lb:.2f}, {lb_init:.2f}")
                     # Inserisco il nodo radice
-                    heapq.heappush(queue, (lb_init, 0, initial_config, crit_init)) # 0 è un counter
+                    heapq.heappush(queue, (heuristic_init_lb, lb_init, 0, initial_config, crit_init_mid)) # 0 è un counter
                 except (ValueError, RuntimeError) as e:
                     logging.error(f"[ERROR] Preprocessing fallito: {e}")
                     return None
@@ -119,7 +142,7 @@ class BranchAndBoundSolver:
                 last_log_time = start_time
 
                 while queue:
-                    lb, _, config, critical_activities = heapq.heappop(queue)
+                    heuristic_lb, lb, _, config, critical_activities = heapq.heappop(queue)
                     self._n_chiamate += 1
     
                     # Log periodico
@@ -130,7 +153,7 @@ class BranchAndBoundSolver:
                         open_vars = self._count_open_vars(config)
                         logging.info(
                             f"[PROGRESS] Nodi: {self._n_chiamate} | Coda: {len(queue)} | "
-                            f"Best UB: {self._best_ub:.2f} | LB: {lb:.2f} | "
+                            f"Best UB: {self._best_ub:.2f} |  LB optimistic: {lb:.2f} | LB euristic: {heuristic_lb:.2f} | "
                             f"Var aperte: {open_vars} | Speed: {nodes_per_sec:.1f} n/s"
                         )
                         last_log_time = curr_time
@@ -145,30 +168,38 @@ class BranchAndBoundSolver:
                     if lb >= self._best_ub:
                         continue
     
+                    # CONTROLLO NUMERO VARIABILI APERTE
+                    open_vars = self._count_open_vars(config)
+    
+                    if open_vars == 0:
+                        # Foglia: tutti gli intervalli sono stati risolti a scalari
+                        fixed = self._fix_config_for_ub(config)
+                        start = perf_counter()
+                        sol = self._compute_ub(
+                            fixed["durations"], fixed["resources"],
+                            fixed["release_dates"], fixed["due_dates"]
+                        )
+                        logging.debug(f"Soluzione UB calcolata in {perf_counter() - start:.2f} secondi")
+                        best_inner = sol.get("best", {}).get("best", {})
+                        if isinstance(best_inner, dict):
+                            ub_score = self._get_score_from_solution(best_inner)
+                            if ub_score < self._best_ub:
+                                self._best_ub = ub_score
+                                start = perf_counter()
+                                self._best_config = copy.deepcopy(fixed)
+                                self._best_solution_orchestrator = sol
+                                logging.debug(f"Configurazione e soluzione salvate con deepcopy in {perf_counter() - start:.2f} secondi")
+                                logging.info(f"LEAF #{self._n_chiamate}] Nuovo best UB: {self._best_ub}")
+                        continue
+
                     # -----------------------------------------------------------------
                     # SELEZIONE VARIABILE — FIX 1
                     # Deterministica: dipende SOLO da config e critical_activities,
                     # non da _n_chiamate o altri contatori globali.
                     # -----------------------------------------------------------------
+                    start = perf_counter()
                     var = self._select_best_variable(config, critical_activities)
-    
-                    if var is None:
-                        # Foglia: tutti gli intervalli sono stati risolti a scalari
-                        fixed = self._fix_config_for_ub(config)
-                        sol = self._compute_ub(
-                            fixed["durations"], fixed["resources"],
-                            fixed["release_dates"], fixed["due_dates"]
-                        )
-                        best_inner = sol.get("best", {}).get("best", {})
-                        if isinstance(best_inner, dict):
-                            ub_score = best_inner.get("score", float("inf"))
-                            if ub_score < self._best_ub:
-                                self._best_ub = ub_score
-                                self._best_config = copy.deepcopy(fixed)
-                                self._best_solution_orchestrator = sol
-                                logging.info(f"LEAF #{self._n_chiamate}] Nuovo best UB: {self._best_ub}")
-                        continue
-    
+                    logging.debug(f"Selezione variabile completata in {perf_counter() - start:.2f} secondi")
                     field, i = var
                     val = config[field][i]
                     low, high = val
@@ -179,12 +210,17 @@ class BranchAndBoundSolver:
                     # I sotto-intervalli con un solo elemento diventano scalari.
                     # In questo modo ogni intero è raggiungibile in O(log(high-low)) livelli.
                     # -----------------------------------------------------------------
+                    start = perf_counter()
                     left_val, right_val = self._branch_on_interval(low, high)
+                    logging.debug(f"Branching per splitting completato in {perf_counter() - start:.2f} secondi")
     
                     for branch_val in (left_val, right_val):
+                        start = perf_counter()
                         conf_new = copy.deepcopy(config)
                         conf_new[field][i] = branch_val
-    
+                        conf_new = self._normalize_config(conf_new)
+                        logging.debug(f"Configurazione copiata con deepcopy per branch e normalizzata in {perf_counter() - start:.2f} secondi")
+                        
                         # Descrizione leggibile per il log
                         branch_desc = (
                             f"[{branch_val[0]},{branch_val[1]}]"
@@ -193,7 +229,9 @@ class BranchAndBoundSolver:
                         )
     
                         fixed_new = self._fix_config_for_lb(conf_new)
+                        fixed_new_mid = self._fix_config_for_lb_mid(conf_new)
                         try:
+                            start = perf_counter()
                             proc_new = _pre_processing_rcpsp_max(
                                 n=self.base_data.n, durations=fixed_new["durations"],
                                 precedences=self.base_data.precedences,
@@ -203,32 +241,54 @@ class BranchAndBoundSolver:
                                 release_dates=fixed_new["release_dates"],
                                 due_dates=fixed_new["due_dates"]
                             )
-                            lb_new, crit_new = self._compute_lb(
+                            proc_new_mid = _pre_processing_rcpsp_max(
+                                n=self.base_data.n, durations=fixed_new_mid["durations"],
+                                precedences=self.base_data.precedences,
+                                resources=fixed_new_mid["resources"],
+                                consumption=self.base_data.consumption,
+                                horizon=self.base_data.horizon,
+                                release_dates=fixed_new_mid["release_dates"],
+                                due_dates=fixed_new_mid["due_dates"]
+                            )
+                            logging.debug(f"Pre-processing completato in {perf_counter() - start:.2f} secondi")
+                            start = perf_counter()
+                            optimistic_lb, crit_new = self._compute_lb(
                                 proc_new.n, proc_new.durations, proc_new.precedences,
                                 proc_new.consumption, proc_new.resources, proc_new.release_dates
                             )
+                            heuristic_mid_lb, crit_new_mid = self._compute_lb(
+                                proc_new_mid.n, proc_new_mid.durations, proc_new_mid.precedences,
+                                proc_new_mid.consumption, proc_new_mid.resources, proc_new_mid.release_dates
+                            )
+                            logging.debug(f"LB calcolati in {perf_counter() - start:.2f} secondi")
     
-                            if lb_new < self._best_ub:
+                            if optimistic_lb < self._best_ub:
                                 node_counter += 1
-    
-                                # UB euristico ogni 250 nodi inseriti
-                                if node_counter % 250 == 0:
+                                
+                                child_open_vars = self._count_open_vars(conf_new)
+                                # UB euristico quando il nodo è promettente
+                                if optimistic_lb < self._best_ub * 0.9 or child_open_vars < self._variabili_totali_aperte // 2:
+                                    start = perf_counter()
                                     sol_heur = self._compute_ub(
                                         fixed_new["durations"], fixed_new["resources"],
                                         fixed_new["release_dates"], fixed_new["due_dates"]
                                     )
+                                    logging.debug(f"UB euristico calcolato in {perf_counter() - start:.2f} secondi")
                                     inner_heur = sol_heur.get("best", {}).get("best", {})
-                                    if (isinstance(inner_heur, dict)
-                                            and inner_heur.get("score", float("inf")) < self._best_ub):
-                                        self._best_ub = inner_heur["score"]
-                                        self._best_config = copy.deepcopy(fixed_new)
-                                        self._best_solution_orchestrator = sol_heur
-                                        logging.info(
-                                            f"[HEUR #{self._n_chiamate}] "
-                                            f"Nuovo UB euristico: {self._best_ub}"
-                                        )
+                                    if (isinstance(inner_heur, dict)):
+                                        heur_score = self._get_score_from_solution(inner_heur)
+                                        if heur_score < self._best_ub:
+                                            self._best_ub = heur_score
+                                            start = perf_counter()
+                                            self._best_config = copy.deepcopy(fixed_new)
+                                            self._best_solution_orchestrator = sol_heur
+                                            logging.debug(f"Configurazione copiata con deepcopy e salvata in {perf_counter() - start:.2f} secondi")
+                                            logging.info(
+                                                f"[HEUR #{self._n_chiamate}] "
+                                                f"Nuovo UB euristico: {self._best_ub}"
+                                            )
     
-                                heapq.heappush(queue, (lb_new, node_counter, conf_new, crit_new))
+                                heapq.heappush(queue, (heuristic_mid_lb, optimistic_lb, node_counter, conf_new, crit_new_mid))
     
                         except Exception as e:
                             # Infeasible dopo preprocessing → ramo scartato silenziosamente
@@ -351,6 +411,15 @@ class BranchAndBoundSolver:
             "release_dates": [rd if not isinstance(rd, tuple) else min(rd) for rd in config["release_dates"]],
             "due_dates": [dd if not isinstance(dd, tuple) else max(dd) for dd in config["due_dates"]],
         }
+
+    def _fix_config_for_lb_mid(self, config):
+        """Fisso la config per il calcolo del LB. Uso i valori medi delle tuple."""
+        return{
+            "durations": [d if not isinstance(d, tuple) else (d[0] + d[1]) // 2 for d in config["durations"]],
+            "resources": [r if not isinstance(r, tuple) else (r[0] + r[1]) // 2 for r in config["resources"]],
+            "release_dates": [rd if not isinstance(rd, tuple) else (rd[0] + rd[1]) // 2 for rd in config["release_dates"]],
+            "due_dates": [dd if not isinstance(dd, tuple) else (dd[0] + dd[1]) // 2 for dd in config["due_dates"]],
+        }
     
     def _fix_config_for_ub(self, config):
         """Fisso la config per il calcolo dell'UB. Considero lo stesso scenario iniziale, quindi quello più ottimistico."""
@@ -396,6 +465,9 @@ class BranchAndBoundSolver:
         # Aggiungere arco inverso con peso -max_lag per propagare il vincolo
         for (i, j, min_lag, max_lag) in precedences:
             G.add_edge(i, j, weight=min_lag)
+            if max_lag is not None:
+                # start_j <= start_i + max_lag  =>  start_i >= start_j - max_lag
+                G.add_edge(j, i, weight=-max_lag)
 
         for i in activities:
             if i != 0 and release_dates[i] is not None:
@@ -405,18 +477,26 @@ class BranchAndBoundSolver:
                 else:
                     G.add_edge(0, i, weight=rd)
         
-        if not nx.is_directed_acyclic_graph(G):
-            raise ValueError("Il grafo delle attività e delle precedenze contiene cicli, impossibile calcolare il CPM.")
-        
-        topo_order = list(nx.topological_sort(G))
-        dist = {i: float("-inf") for i in activities}
-        dist[0] = 0
+        try:
+            # Per il calcolo del Longest Path con cicli (possibili in RCPSP/Max),
+            # usiamo Bellman-Ford su pesi negati: LP(u,v,w) = -SP(u,v,-w).
+            G_neg = nx.DiGraph()
+            for u, v, data in G.edges(data=True):
+                G_neg.add_edge(u, v, weight=-data['weight'])
+            
+            # Calcolo dei cammini minimi sul grafo negato
+            neg_dist = nx.single_source_bellman_ford_path_length(G_neg, 0)
+            
+            # Ricostruiamo le distanze originali (negando i risultati)
+            # Inizializziamo a float("-inf") per attività non raggiungibili
+            dist = {act: float("-inf") for act in activities}
+            for act, d in neg_dist.items():
+                dist[act] = -d
 
-        for u in topo_order:
-            for v in G.successors(u):
-                w = G[u][v]["weight"]
-                if dist[u] + w > dist[v]:
-                    dist[v] = dist[u] + w
+        except (nx.NetworkXUnbounded, nx.NegativeCycle):
+            raise ValueError("Il grafo contiene un ciclo a peso positivo (inconsistenza temporale).")
+        except Exception as e:
+            raise ValueError(f"Errore nel calcolo del CPM: {e}")
 
         finish_times = {i: dist[i] + durations[i] for i in activities}
         makespan_lb = max(finish_times.values())
@@ -483,6 +563,14 @@ class BranchAndBoundSolver:
         )
 
         return result
+
+    @staticmethod
+    def _get_score_from_solution(sol_dict):
+        """Estrae lo score dalla soluzione, usando il makespan come fallback."""
+        score = sol_dict.get("score")
+        if score is None:
+            score = sol_dict.get("makespan")
+        return float(score) if score is not None else float("inf")
 
     def _validate_ub_solution(self, solution, durations, resources, release_dates, due_dates):
         schedule = self._extract_solution_schedule(solution)
@@ -560,6 +648,19 @@ class BranchAndBoundSolver:
 
         return best.get("soluzione") or best.get("schedule")
 
+    @staticmethod
+    def _normalize_config(config):
+        out = copy.deepcopy(config)
+
+        for field in ("durations", "resources", "release_dates", "due_dates"):
+            for i, val in enumerate(out[field]):
+                if isinstance(val, tuple):
+                    low, high = val
+                    if low == high:
+                        out[field][i] = low
+
+        return out
+
     @property
     def best_ub(self):
         return self._best_ub
@@ -575,9 +676,13 @@ class BranchAndBoundSolver:
     
     @staticmethod
     def _open_log_file():
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"solver/logs/branch_and_bound_{ts}.log"
+        
         logging.basicConfig(
-            filename='solver/logs/branch_and_bound_test.log',
+            filename=filename,
             filemode='a',
             level=logging.DEBUG,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            force=True
         )

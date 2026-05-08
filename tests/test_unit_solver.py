@@ -1,14 +1,14 @@
 import pytest
 from unittest.mock import MagicMock
 from solver.branch_and_bound import BranchAndBoundSolver
-from solver.dataclasses.base_data_b_and_b import BaseDataBAndB
+from solver.dataclasses.input_data import InputData
 from solver.dataclasses.best_config_b_and_b import BestConfigBAndB
 from pydantic import ValidationError
 
 # --- TEST DATACLASSES ---
 
 def test_base_data_validation():
-    """Verifica che BaseDataBAndB validi correttamente i tipi di dato."""
+    """Verifica che InputData validi correttamente i tipi di dato."""
     valid_data = {
         "n": 2,
         "durations": [0, (1, 5)],
@@ -19,14 +19,14 @@ def test_base_data_validation():
         "due_dates": [100, 100],
         "consumption": [[0], [2]]
     }
-    data = BaseDataBAndB(**valid_data)
+    data = InputData(**valid_data)
     assert data.n == 2
     assert isinstance(data.durations[1], tuple)
 
 def test_base_data_invalid_types():
-    """Verifica che BaseDataBAndB sollevi errore per tipi errati."""
+    """Verifica che InputData sollevi errore per tipi errati."""
     with pytest.raises(ValidationError):
-        BaseDataBAndB(
+        InputData(
             n="not_an_int", # Errore qui
             durations=[0, 0],
             precedences=[],
@@ -38,7 +38,7 @@ def test_base_data_invalid_types():
         )
 
 def test_base_data_inconsistent_dimensions():
-    """Verifica che BaseDataBAndB sollevi errore se le liste hanno lunghezze diverse da n."""
+    """Verifica che InputData sollevi errore se le liste hanno lunghezze diverse da n."""
     base_info = {
         "n": 3,
         "durations": [0, 5, 0],
@@ -50,13 +50,32 @@ def test_base_data_inconsistent_dimensions():
         "consumption": [[0]] # Errore: manca consumo per attività 1 e 2
     }
     with pytest.raises(ValidationError, match="La lunghezza di 'consumption'"):
-        BaseDataBAndB(**base_info)
+        InputData(**base_info)
     
     # Test errore risorse incoerenti
     base_info["consumption"] = [[0], [0], [0]]
     base_info["resources"] = [10, 20] # 2 risorse definite, ma consumption ne ha solo 1
     with pytest.raises(ValidationError, match="ha 1 consumi, ma sono definite 2 risorse"):
-        BaseDataBAndB(**base_info)
+        InputData(**base_info)
+
+def test_input_data_full_config():
+    """Verifica che InputData accetti i nuovi campi di configurazione del solver."""
+    data = InputData(
+        n=1,
+        durations=[10],
+        precedences=[],
+        resources=[5],
+        consumption=[[1]],
+        horizon=100,
+        top_k=10,
+        time_weight=2.5,
+        instant_sol=True,
+        priority_rule="mts"
+    )
+    assert data.top_k == 10
+    assert data.time_weight == 2.5
+    assert data.instant_sol is True
+    assert data.priority_rule == "mts"
 
 # --- TEST BRANCH AND BOUND LOGIC ---
 

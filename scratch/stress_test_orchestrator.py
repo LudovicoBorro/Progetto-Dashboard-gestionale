@@ -116,7 +116,9 @@ def run_orchestrator_test(test_id, name, data_func, **params):
             val_res = resources
             val_rd, val_dd = rd, dd
         else:
-            best_sol = res.solution.best.get('best')
+            best_sol = res.solution.best.best
+            if hasattr(best_sol, "model_dump"):
+                best_sol = best_sol.model_dump()
             val_dur = res.config.durations
             val_res = res.config.resources
             val_rd, val_dd = res.config.release_dates, res.config.due_dates

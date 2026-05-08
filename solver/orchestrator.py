@@ -22,6 +22,7 @@ from solver.builders import _run_sgs, _run_exact_model
 from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
 from solver.branch_and_bound import BranchAndBoundSolver
 from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
+from solver.dataclasses.input_data import InputData
 
 class SolverOrchestrator:
 
@@ -57,9 +58,10 @@ class SolverOrchestrator:
     # SISTEMA DECISIONALE
     #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-    def choose_model(self, n: int, durations: list[int | tuple[int, int]], precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]], resources: list[int | tuple[int, int]], 
-                     consumption: list[list[int]], horizon: int, release_dates: list[int | tuple[int, int]] = None, due_dates: list[int | tuple[int, int]] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
-                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False, has_intervals: bool = False, max_nodes: int = 5000, max_time: int = 600):
+    def choose_model(self, n: int = None, durations: list[int | tuple[int, int]] = None, precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]] = None, resources: list[int | tuple[int, int]] = None, 
+                     consumption: list[list[int]] = None, horizon: int = None, release_dates: list[int | tuple[int, int]] = None, due_dates: list[int | tuple[int, int]] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
+                     priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False, has_intervals: bool = False, max_nodes: int = 5000, max_time: int = 600,
+                     input_data: InputData = None):
         """
         Esegue il preprocessing dei dati e sceglie il modello più appropriato (esatto o euristico)
         in base ai parametri ricevuti dall'utente e alla difficoltà stimata dell'istanza.
@@ -96,6 +98,30 @@ class SolverOrchestrator:
                 - 'best': Soluzione migliore trovata
         """
         preprocessing = False
+        if input_data:
+            n = n or input_data.n
+            durations = durations or input_data.durations
+            precedences = precedences or input_data.precedences
+            resources = resources or input_data.resources
+            consumption = consumption or input_data.consumption
+            horizon = horizon or input_data.horizon
+            release_dates = release_dates or input_data.release_dates
+            due_dates = due_dates or input_data.due_dates
+            # Aggiorno i parametri dell'orchestrator/solver dai campi di input_data se non passati esplicitamente
+            # (Assumiamo che se i parametri sono diversi dai default, l'utente li ha passati)
+            # Per semplicità, se input_data è presente, usiamo i suoi valori per i pesi se non diversamente specificato
+            top_k = top_k if top_k != 5 else input_data.top_k
+            time_weight = time_weight if time_weight != 1 else input_data.time_weight
+            resource_weight = resource_weight if resource_weight != 1 else input_data.resource_weight
+            priority_weight = priority_weight if priority_weight != 1 else input_data.priority_weight
+            tardiness_weight = tardiness_weight if tardiness_weight != 1 else input_data.tardiness_weight
+            limit_lookahead = limit_lookahead if limit_lookahead != 5 else input_data.limit_lookahead
+            instant_sol = instant_sol if not instant_sol else input_data.instant_sol
+            priority_rule = priority_rule or input_data.priority_rule
+            rcpsp_max = rcpsp_max if not rcpsp_max else input_data.rcpsp_max
+            has_intervals = has_intervals if not has_intervals else input_data.has_intervals
+            max_nodes = max_nodes if max_nodes != 5000 else input_data.max_nodes
+            max_time = max_time if max_time != 600 else input_data.max_time
 
         if has_intervals:
             config = {
@@ -113,13 +139,23 @@ class SolverOrchestrator:
                 "priority_weight": priority_weight,
                 "tardiness_weight": tardiness_weight,
                 "limit_lookahead": limit_lookahead,
-                "instan_sol": instant_sol,
+                "instant_sol": instant_sol,
                 "priority_rule": priority_rule,
                 "rcpsp_max": rcpsp_max,
                 "max_nodes": max_nodes,
                 "max_time": max_time,
             }
-            b_and_b = BranchAndBoundSolver(self, **config)
+            
+            if input_data:
+                # Se abbiamo input_data, lo passiamo direttamente
+                # ma aggiorniamo i suoi campi se sono stati cambiati via argomenti
+                for key, value in config.items():
+                    if hasattr(input_data, key):
+                        setattr(input_data, key, value)
+                b_and_b = BranchAndBoundSolver(self, input_data=input_data)
+            else:
+                b_and_b = BranchAndBoundSolver(self, **config)
+            
             result = b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
             best_solution = b_and_b.best_solution()
             if best_solution is None:
