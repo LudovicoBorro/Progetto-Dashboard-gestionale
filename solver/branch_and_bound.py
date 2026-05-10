@@ -682,7 +682,7 @@ class BranchAndBoundSolver:
         logging.basicConfig(
             filename=filename,
             filemode='a',
-            level=logging.DEBUG,
+            level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             force=True
         )
