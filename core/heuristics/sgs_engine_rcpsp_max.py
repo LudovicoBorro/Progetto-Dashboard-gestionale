@@ -709,11 +709,12 @@ def test_modulo():
 
     print("-"*60)
     print("La migliore soluzione in assoluto, tra tutte le regole di priorità e tra il seriale e il parallelo è:")
-    print(f"Regola: {best_solution_overall["regola"]}")
-    print(f"Makespan: {best_solution_overall["makespan"]}")
-    print(f"Soluzione: {best_solution_overall["soluzione"]}")
-    print(f"Penalità: {best_solution_overall["penalità"]}")
-    print(f"Score: {best_solution_overall["score"]}")
+    print(f"Regola: {best_solution_overall['best']['regola']}")
+    print(f"Makespan: {best_solution_overall['best']['makespan']}")
+    print(f"Soluzione: {best_solution_overall['best']['soluzione']}")
+    print(f"Penalità: {best_solution_overall['best']['penalità']}")
+    print(f"Score: {best_solution_overall['best']['score']}")
+
     print("-"*60)
 
 if __name__ == "__main__":

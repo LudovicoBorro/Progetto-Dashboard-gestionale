@@ -15,6 +15,9 @@ class Project(SQLModel, table=True):
     description: Optional[str] = Field(default=None, description="Descrizione del progetto")
     created_at: datetime = Field(index=True, default_factory=datetime.now, description="Data di creazione del progetto")
     last_edited_at: datetime = Field(default_factory=datetime.now, description="Data di aggiornamento del progetto")
+    start_date: datetime = Field(default_factory=datetime.now, description="Data di inizio del progetto", index=True, nullable=False)
+    end_date: datetime = Field(description="Data potenziale di fine progetto", index=True, nullable=False)
+    status: Optional[str] = Field(default="Da schedulare", description="Stato del progetto")
     
     # Global project settings (e.g., resource capacities, global constraints)
     project_config_json: Optional[dict] = Field(default=None, description="Configurazioni globali del progetto", sa_column=Column(JSON))
