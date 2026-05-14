@@ -1,70 +1,143 @@
 from pydantic import BaseModel, Field, model_validator, AliasChoices
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Literal
+
+
+# =====================================================================
+# SINGOLA SOLUZIONE
+# =====================================================================
 
 class SingleSolution(BaseModel):
-    """Rappresenta una singola schedula trovata dal solver."""
+    """
+    Rappresenta una singola schedula trovata dal solver.
+    """
+
     regola: Optional[str] = None
-    
-    # Supportiamo sia 'soluzione' che 'schedule' come nomi per la lista dei task
+
+    # Compatibilità legacy:
+    # - soluzione
+    # - schedule
     soluzione: Optional[List[Dict[str, Any]]] = Field(
-        default=None, 
-        validation_alias=AliasChoices('soluzione', 'schedule')
+        default=None,
+        validation_alias=AliasChoices("soluzione", "schedule")
     )
-    
-    # Supportiamo 'start_times' o 'schedule_dict' per il formato dizionario
-    # Le chiavi possono essere int o str (es. {0: 0} o {"0": 0})
+
+    # Compatibilità legacy:
+    # - schedule_dict
+    # - start
     schedule_dict: Optional[Dict[Union[int, str], Any]] = Field(
-        default=None, 
-        validation_alias=AliasChoices('schedule_dict', 'start')
+        default=None,
+        validation_alias=AliasChoices("schedule_dict", "start")
     )
-    
+
     durations: Optional[Any] = None
+
     makespan: int
+
     score: Optional[float] = None
-    
-    # Supportiamo sia 'penalità' che 'penalty'
-    penalità: Optional[float] = Field(
-        default=None, 
-        validation_alias=AliasChoices('penalità', 'penalty')
+
+    # INTERNO: usa SEMPRE "penalty"
+    penalty: Optional[float] = Field(
+        default=None,
+        validation_alias=AliasChoices("penalty", "penalità")
     )
-    
+
     rank_info: Optional[Dict[str, Any]] = None
+
     elapsed_time: Optional[float] = None
 
-class BestSolutionsContainer(BaseModel):
-    """Contenitore per la migliore soluzione e le top-k."""
-    best: SingleSolution
+
+# =====================================================================
+# CONTAINER RANKING
+# =====================================================================
+
+class RankingDTO(BaseModel):
+    """
+    Ranking delle soluzioni generate dal solver.
+    """
+
+    best_solution: SingleSolution
+
     top_k_makespan: List[SingleSolution] = Field(default_factory=list)
+
     top_k_score: List[SingleSolution] = Field(default_factory=list)
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
-    def handle_solver_output(cls, data: Any) -> Any:
+    def normalize_input(cls, data: Any):
+
         if not isinstance(data, dict):
             return data
-            
-        # Se i dati non hanno la chiave 'best', assumiamo che l'input sia 
-        # la soluzione singola stessa (caso del modello esatto)
-        if "best" not in data:
+
+        # CASO:
+        # arriva direttamente una soluzione singola
+        if "best_solution" not in data and "best" not in data:
+
             return {
-                "best": data,
+                "best_solution": data,
                 "top_k_makespan": [data],
                 "top_k_score": []
             }
-            
-        # Normalizzazione delle liste None
-        if data.get('top_k_makespan') is None:
-            data['top_k_makespan'] = []
-        if data.get('top_k_score') is None:
-            data['top_k_score'] = []
-            
+
+        # Compatibilità legacy
+        if "best" in data and "best_solution" not in data:
+            data["best_solution"] = data.pop("best")
+
+        data.setdefault("top_k_makespan", [])
+        data.setdefault("top_k_score", [])
+
         return data
 
-class SoluzioneOrchestrator(BaseModel):
-    """Output principale dell'orchestratore."""
-    type: str
-    problem_difficulty: str
-    is_rcpsp_max: bool = False
-    results: Optional[Dict[str, Any]] = None
-    best: BestSolutionsContainer
 
+# =====================================================================
+# DTO FINALE UNIFICATO
+# =====================================================================
+
+class SolutionDTO(BaseModel):
+    """
+    DTO unificato restituito dall'orchestrator.
+    """
+
+    solution_type: str = Field(..., alias="type")
+
+    search_strategy: str = Field(default="direct_solver")
+
+    problem_difficulty: str
+
+    problem_type: Literal["RCPSP", "RCPSP_MAX"]
+
+    ranking: RankingDTO
+
+    results: Optional[Any] = None
+
+    additional_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_data(cls, data: Any):
+
+        if not isinstance(data, dict):
+            return data
+
+        # Compatibilità legacy:
+        # is_rcpsp_max -> problem_type
+        if "problem_type" not in data:
+
+            data["problem_type"] = (
+                "RCPSP_MAX"
+                if data.get("is_rcpsp_max")
+                else "RCPSP"
+            )
+
+        # Compatibilità legacy:
+        # best -> ranking
+        if "best" in data and "ranking" not in data:
+            data["ranking"] = data.pop("best")
+
+        return data
+
+    def to_dict(self) -> Dict[str, Any]:
+
+        return self.model_dump(
+            by_alias=True,
+            exclude_none=True
+        )

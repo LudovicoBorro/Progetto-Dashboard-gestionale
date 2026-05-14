@@ -2,8 +2,6 @@ from time import perf_counter
 from datetime import datetime
 from solver.dataclasses.input_data import InputData
 from solver.dataclasses.best_config_b_and_b import BestConfigBAndB
-from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
-from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
 from solver.preprocessing import _pre_processing_rcpsp_max
 from time import time
 import networkx as nx
@@ -61,7 +59,14 @@ class BranchAndBoundSolver:
             resources_fixed = self._fix_to_max(self.base_data.resources)
             result = self.orch.choose_model(n=self.base_data.n, durations=durations_fixed, precedences=self.base_data.precedences, resources=resources_fixed,
                                     consumption=self.base_data.consumption, horizon=self.base_data.horizon, top_k=self.top_k, instant_sol=instant_sol, priority_rule=self.priority_rule, rcpsp_max=False)
-            return BestSolutionBAndB(BestConfigBAndB(durations_fixed, resources_fixed, None, None), BestSolutionBAndB(**result)) 
+            self._best_solution_orchestrator = result
+            self._best_config = BestConfigBAndB(
+                durations_fixed,
+                resources_fixed,
+                None,
+                None
+            )
+            return result
         else:
             only_durations = any(isinstance(d, tuple) for d in self.base_data.durations) and not any(isinstance(r, tuple) for r in self.base_data.resources) and not any(isinstance(rd, tuple) for rd in self.base_data.release_dates) and not any(isinstance(dd, tuple) for dd in self.base_data.due_dates)
             only_durations_resources = any(isinstance(d, tuple) for d in self.base_data.durations) and any(isinstance(r, tuple) for r in self.base_data.resources) and not any(isinstance(rd, tuple) for rd in self.base_data.release_dates) and not any(isinstance(dd, tuple) for dd in self.base_data.due_dates)
@@ -72,7 +77,14 @@ class BranchAndBoundSolver:
                                         consumption=self.base_data.consumption, horizon=self.base_data.horizon, top_k=self.top_k, time_weight=self.time_weight, 
                                         resource_weight=self.resource_weight, priority_weight=self.priority_weight, tardiness_weight=self.tardiness_weight, 
                                         limit_lookahead=self.limit_lookahead, instant_sol=instant_sol, priority_rule=self.priority_rule, rcpsp_max=True)
-                return BestSolutionBAndB(BestConfigBAndB(durations_fixed, resources_fixed, self.base_data.release_dates, self.base_data.due_dates), BestSolutionBAndB(**result))
+                self._best_solution_orchestrator = result
+                self._best_config = BestConfigBAndB(
+                    durations_fixed,
+                    resources_fixed,
+                    self.base_data.release_dates,
+                    self.base_data.due_dates
+                )
+                return result
             else:
                 self._open_log_file()
                 # Inizializzo le durate a min, le risorse a max, le release date a min e le due date a max, e calcolo LB iniziale e UB iniziale
@@ -86,8 +98,8 @@ class BranchAndBoundSolver:
                 
                 self._best_ub = float("inf")
                 first_ub_result = self._compute_ub(durations_fixed, resources_fixed, release_dates_fixed, due_dates_fixed)
-                best_inner = first_ub_result.get("best", {}).get("best", {})
-                if isinstance(best_inner, dict):
+                best_inner = first_ub_result.ranking.best_solution
+                if best_inner is not None:
                     self._best_ub = self._get_score_from_solution(best_inner)
                     self._best_solution_orchestrator = first_ub_result
                     self._best_config = BestConfigBAndB(durations=durations_fixed, resources=resources_fixed, release_dates=release_dates_fixed, due_dates=due_dates_fixed)
@@ -180,8 +192,8 @@ class BranchAndBoundSolver:
                             fixed["release_dates"], fixed["due_dates"]
                         )
                         logging.debug(f"Soluzione UB calcolata in {perf_counter() - start:.2f} secondi")
-                        best_inner = sol.get("best", {}).get("best", {})
-                        if isinstance(best_inner, dict):
+                        best_inner = sol.ranking.best_solution
+                        if best_inner is not None:
                             ub_score = self._get_score_from_solution(best_inner)
                             if ub_score < self._best_ub:
                                 self._best_ub = ub_score
@@ -274,7 +286,7 @@ class BranchAndBoundSolver:
                                         fixed_new["release_dates"], fixed_new["due_dates"]
                                     )
                                     logging.debug(f"UB euristico calcolato in {perf_counter() - start:.2f} secondi")
-                                    inner_heur = sol_heur.get("best", {}).get("best", {})
+                                    inner_heur = sol_heur.ranking.best_solution
                                     if (isinstance(inner_heur, dict)):
                                         heur_score = self._get_score_from_solution(inner_heur)
                                         if heur_score < self._best_ub:
@@ -565,11 +577,11 @@ class BranchAndBoundSolver:
         return result
 
     @staticmethod
-    def _get_score_from_solution(sol_dict):
+    def _get_score_from_solution(solution):
         """Estrae lo score dalla soluzione, usando il makespan come fallback."""
-        score = sol_dict.get("score")
+        score = getattr(solution, "score", None)
         if score is None:
-            score = sol_dict.get("makespan")
+            score = getattr(solution, "makespan", None)
         return float(score) if score is not None else float("inf")
 
     def _validate_ub_solution(self, solution, durations, resources, release_dates, due_dates):
@@ -670,9 +682,22 @@ class BranchAndBoundSolver:
         return self._best_config
     
     def best_solution(self):
-        if self._best_ub is None or self._best_config is None or self._best_solution_orchestrator is None:
+
+        if self._best_solution_orchestrator is None:
             return None
-        return BestSolutionBAndB(config=self._best_config, solution=SoluzioneOrchestrator(**self._best_solution_orchestrator))
+
+        if self._best_solution_orchestrator.additional_info is None:
+            self._best_solution_orchestrator.additional_info = {}
+
+        self._best_solution_orchestrator.search_strategy = "branch_and_bound"
+
+        self._best_solution_orchestrator.additional_info.update({
+            "best_config": self._best_config,
+            "best_ub": self._best_ub,
+            "nodes_explored": self._n_chiamate,
+        })
+
+        return self._best_solution_orchestrator
     
     @staticmethod
     def _open_log_file():

@@ -34,6 +34,8 @@ class SchedulingService:
                 
                 # 3. Esecuzione Solver
                 solver_result = self._orchestrator.choose_model(input_data=input_data, **params)
+
+                print(solver_result)
                 
                 # 4. Salvataggio risultati nel DB
                 with get_session() as session:

@@ -19,10 +19,9 @@ soluzione lanciando più volte il modello scelto.
 """
 from solver.preprocessing import _pre_processing_rcpsp_max, _pre_processing_rcpsp
 from solver.builders import _run_sgs, _run_exact_model
-from solver.dataclasses.soluzione_orchestrator import SoluzioneOrchestrator
 from solver.branch_and_bound import BranchAndBoundSolver
-from solver.dataclasses.best_solution_b_and_b import BestSolutionBAndB
 from solver.dataclasses.input_data import InputData
+from solver.dataclasses.soluzione_orchestrator import SolutionDTO, RankingDTO
 
 class SolverOrchestrator:
 
@@ -61,7 +60,7 @@ class SolverOrchestrator:
     def choose_model(self, n: int = None, durations: list[int | tuple[int, int]] = None, precedences: list[tuple[int,int,str,int,int | None]] | list[tuple[int,int]] = None, resources: list[int | tuple[int, int]] = None, 
                      consumption: list[list[int]] = None, horizon: int = None, release_dates: list[int | tuple[int, int]] = None, due_dates: list[int | tuple[int, int]] = None, top_k: int = 5, time_weight: float = 1, resource_weight: float = 1, 
                      priority_weight: float = 1, tardiness_weight: float = 1, limit_lookahead: int = 5, instant_sol: bool = False, priority_rule: str = None, rcpsp_max: bool = False, has_intervals: bool = False, max_nodes: int = 5000, max_time: int = 600,
-                     input_data: InputData = None):
+                     input_data: InputData = None) -> SolutionDTO:
         """
         Esegue il preprocessing dei dati e sceglie il modello più appropriato (esatto o euristico)
         in base ai parametri ricevuti dall'utente e alla difficoltà stimata dell'istanza.
@@ -157,12 +156,12 @@ class SolverOrchestrator:
             else:
                 b_and_b = BranchAndBoundSolver(self, **config)
             
-            result = b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
+            b_and_b.esplora_soluzioni(instant_sol, rcpsp_max)
             best_solution = b_and_b.best_solution()
             if best_solution is None:
                 raise RuntimeError("Il branch and bound non ha trovato una soluzione fattibile.")
+            
             return best_solution
-
         if rcpsp_max:
             try:
                 processed = _pre_processing_rcpsp_max(n, durations, precedences, resources, consumption, horizon, release_dates, due_dates)
@@ -212,13 +211,19 @@ class SolverOrchestrator:
                     rule=priority_rule,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(
-                    type="heuristic_single_start", 
-                    problem_difficulty=diff, 
-                    is_rcpsp_max=rcpsp_max,
-                    results=all_results, 
-                    best=best_solution
-                ).model_dump()
+                return SolutionDTO(
+                    type="heuristic_single_start",
+                    problem_difficulty=diff,
+                    problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+
+                    ranking=RankingDTO(
+                        best_solution=best_solution.get("best"),
+                        top_k_makespan=best_solution.get("top_k_makespan"),
+                        top_k_score=best_solution.get("top_k_score"),
+                    ),
+
+                    results=all_results,
+                )
             elif diff == "medium":
                 # In questo caso meglio il multistart soft
                 all_results, best_solution, _ = _run_sgs(
@@ -229,13 +234,19 @@ class SolverOrchestrator:
                     n_runs=50,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(
-                    type="heuristic_multi_start", 
-                    problem_difficulty=diff, 
-                    is_rcpsp_max=rcpsp_max,
-                    results=all_results, 
-                    best=best_solution
-                ).model_dump()
+                return SolutionDTO(
+                    type="heuristic_multi_start",
+                    problem_difficulty=diff,
+                    problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+
+                    ranking=RankingDTO(
+                        best_solution=best_solution.get("best"),
+                        top_k_makespan=best_solution.get("top_k_makespan"),
+                        top_k_score=best_solution.get("top_k_score"),
+                    ),
+
+                    results=all_results,
+                )
             else:
                 # In questo caso eseguo un multistart hard
                 all_results, best_solution, _ = _run_sgs(
@@ -246,38 +257,56 @@ class SolverOrchestrator:
                     n_runs=500,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(
-                    type="heuristic_multi_start", 
-                    problem_difficulty=diff, 
-                    is_rcpsp_max=rcpsp_max,
-                    results=all_results, 
-                    best=best_solution
-                ).model_dump()
+                return SolutionDTO(
+                    type="heuristic_multi_start",
+                    problem_difficulty=diff,
+                    problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+
+                    ranking=RankingDTO(
+                        best_solution=best_solution.get("best"),
+                        top_k_makespan=best_solution.get("top_k_makespan"),
+                        top_k_score=best_solution.get("top_k_score"),
+                    ),
+
+                    results=all_results,
+                )
         # CASO 2
         # Soluzione esatta o normale richiesta
         else:
             # Lancio metodo esatto
             try:
                 solution = _run_exact_model(self, rcpsp_max=rcpsp_max, max_time=max_time)
-                return SoluzioneOrchestrator(
-                    type="exact", 
-                    problem_difficulty=diff, 
-                    is_rcpsp_max=rcpsp_max,
-                    results=None, 
-                    best=solution
-                ).model_dump()
+                return SolutionDTO(
+                    type="exact",
+                    problem_difficulty=diff,
+                    problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+
+                    ranking=RankingDTO(
+                        best_solution=solution,
+                        top_k_makespan=[solution],
+                        top_k_score=[]
+                    ),
+
+                    results=None,
+                )
 
             except Exception as e:
                 print(e)
                 print("Il modello esatto non ha trovato una soluzione ottimale o fattibile, eseguo fallback con euristiche...")
                 all_results, best_solution, _ = _run_sgs(self, rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500, top_k=top_k)
-                return SoluzioneOrchestrator(
-                    type="heuristic_fallback", 
-                    problem_difficulty=diff, 
-                    is_rcpsp_max=rcpsp_max,
-                    results=all_results, 
-                    best=best_solution
-                ).model_dump()
+                return SolutionDTO(
+                    type="heuristic_fallback",
+                    problem_difficulty=diff,
+                    problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+
+                    ranking=RankingDTO(
+                        best_solution=best_solution.get("best"),
+                        top_k_makespan=best_solution.get("top_k_makespan"),
+                        top_k_score=best_solution.get("top_k_score"),
+                    ),
+
+                    results=all_results,
+                )
 
     def _calcola_diff(self):
         """
@@ -402,32 +431,44 @@ if __name__ == '__main__':
     # soluzione = so.choose_model(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates, instant_sol=False, rcpsp_max=True, top_k=top_k)
     # soluzione = so.choose_model(n, durations, precedences_rcpsp, resources, consumption, horizon, instant_sol=True, rcpsp_max=False, top_k=top_k)
     soluzione = so.choose_model(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates, instant_sol=True, rcpsp_max=True, top_k=top_k)
-    type_exact = (soluzione.get("type") == "exact")
-    type_rcpsp_max = False
-    if not type_exact and soluzione.get("best").get("top_k_score") is not None:
-        type_rcpsp_max = True
-    print("=======================================================")
-    print(f"Metodo utilizzato: {soluzione.get("type")}")
-    print(f"Difficoltà del problema stimata: {soluzione.get("problem_difficulty")}")
-    if soluzione.get("results") is not None:
-        print(f"Risultati: {soluzione.get("results")}")
-    if not type_exact:
-        print(f"Soluzione migliore: {soluzione.get("best").get("best")}")
-        if type_rcpsp_max:
-            print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
-            for elem in soluzione.get("best").get("top_k_score")[1:top_k]:
-                print(elem)
-            print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
-            for elem in soluzione.get("best").get("top_k_makespan")[1:top_k]:
-                print(elem)
-        else:
-            print(f"\nAltre top {top_k-1} soluzioni:")
-            for elem in soluzione.get("best").get("top_k_makespan")[1:top_k]:
-                print(elem)
-    else:
-        print(f"Soluzione migliore: {soluzione.get("best")}")
-    print("==============================================================================================================")
+    
+    type_exact = (soluzione.solution_type == "exact")
 
+    type_rcpsp_max = (
+        soluzione.problem_type == "RCPSP_MAX"
+    )
+
+    print("=======================================================")
+    print(f"Metodo utilizzato: {soluzione.solution_type}")
+    print(f"Difficoltà del problema stimata: {soluzione.problem_difficulty}")
+
+    if soluzione.results is not None:
+        print(f"Risultati: {soluzione.results}")
+
+    print(f"Soluzione migliore: {soluzione.ranking.best_solution}")
+
+    if not type_exact:
+
+        if type_rcpsp_max:
+
+            print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
+
+            for elem in soluzione.ranking.top_k_score[1:top_k]:
+                print(elem)
+
+            print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
+
+            for elem in soluzione.ranking.top_k_makespan[1:top_k]:
+                print(elem)
+
+        else:
+
+            print(f"\nAltre top {top_k-1} soluzioni:")
+
+            for elem in soluzione.ranking.top_k_makespan[1:top_k]:
+                print(elem)
+
+    print("==============================================================================================================")
 
     # Test per Branch and Bound
 
@@ -438,30 +479,53 @@ if __name__ == '__main__':
     print("==============================================================================================================")
 
     soluzione = so.choose_model(n, durations, precedences_rcpsp_max, resources, consumption, horizon, release_dates, due_dates, instant_sol=True, rcpsp_max=True, top_k=top_k, has_intervals=True)
-    
-    type_rcpsp_max = False
-    if soluzione.solution.best.get("top_k_score") is not None:
-        type_rcpsp_max = True
-    if not isinstance(soluzione, BestSolutionBAndB):
-        print("Errore! Branch and Bound non è stato correttamente chiamato!")
+
+    type_rcpsp_max = (
+        soluzione.problem_type == "RCPSP_MAX"
+    )
+
+    print("Branch and Bound chiamato correttamente!")
+    print("=======================================================")
+
+    print(f"Metodo utilizzato: {soluzione.solution_type}\n")
+
+    print(
+        f"Difficoltà del problema stimata: "
+        f"{soluzione.problem_difficulty}\n"
+    )
+
+    if soluzione.results is not None:
+        print(f"Risultati: {soluzione.results}\n")
+
+    print(
+        f"Soluzione migliore: "
+        f"{soluzione.ranking.best_solution}"
+    )
+
+    if type_rcpsp_max:
+
+        print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
+
+        for elem in soluzione.ranking.top_k_score[1:top_k]:
+            print(elem)
+
+        print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
+
+        for elem in soluzione.ranking.top_k_makespan[1:top_k]:
+            print(elem)
+
     else:
-        print("Branch and Bound chiamato correttamente!")
-        print("=======================================================")
-        print(f"Metodo utilizzato: {soluzione.solution.type}\n")
-        print(f"Difficoltà del problema stimata: {soluzione.solution.problem_difficulty}\n")
-        print(f"Risultati: {soluzione.solution.results}\n")
-        print(f"Soluzione migliore: {soluzione.solution.best.get("best")}")
-        if type_rcpsp_max:
-            print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
-            for elem in soluzione.solution.best.get("top_k_score")[1:top_k]:
-                print(elem)
-            print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
-            for elem in soluzione.solution.best.get("top_k_makespan")[1:top_k]:
-                print(elem)
-        else:
-            print(f"\nAltre top {top_k-1} soluzioni:")
-            for elem in soluzione.solution.best.get("top_k_makespan")[1:top_k]:
-                print(elem)
-        print("\n")
-        print(f"La configurazione migliore presa in considerazione è: {soluzione.config.model_dump()}")
-        print("=======================================================")
+
+        print(f"\nAltre top {top_k-1} soluzioni:")
+
+        for elem in soluzione.ranking.top_k_makespan[1:top_k]:
+            print(elem)
+
+    print("\n")
+    print(
+        "La configurazione migliore presa in considerazione è:"
+    )
+    print(
+        soluzione.additional_info["best_config"]
+    )
+    print("=======================================================")
