@@ -3,6 +3,10 @@ from ..models.project import Project
 from .base_repository import BaseRepository
 
 class ProjectRepository(BaseRepository[Project]):
+    """
+    Repository dedicato ai Progetti per eseguire determinate 
+    query al DB. Eredita i metodi base del BaseRepository.
+    """
     def __init__(self, session: Session):
         super().__init__(session, Project)
 

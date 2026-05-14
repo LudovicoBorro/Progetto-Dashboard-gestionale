@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import os
 from sqlmodel import create_engine, SQLModel, Session
 
@@ -15,6 +16,7 @@ def init_db():
     os.makedirs("data", exist_ok=True)
     SQLModel.metadata.create_all(engine)
 
+@contextmanager
 def get_session():
     """Provide a session for database operations."""
     with Session(engine) as session:

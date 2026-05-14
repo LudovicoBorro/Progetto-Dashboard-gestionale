@@ -64,5 +64,7 @@ class SoluzioneOrchestrator(BaseModel):
     """Output principale dell'orchestratore."""
     type: str
     problem_difficulty: str
+    is_rcpsp_max: bool = False
     results: Optional[Dict[str, Any]] = None
     best: BestSolutionsContainer
+

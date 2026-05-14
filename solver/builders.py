@@ -74,7 +74,7 @@ def _build_sgs(orch, rcpsp_max):
     else:
         return SGSEngine(orch._n, orch._durations, orch._precedences, orch._resources, orch._consumption, orch._horizon, validate_input=True)
     
-def _run_exact_model(orch, rcpsp_max):
+def _run_exact_model(orch, rcpsp_max, max_time: int = 300):
     """
     Esegue il modello esatto (ottimale) per risolvere il problema.
     
@@ -88,8 +88,8 @@ def _run_exact_model(orch, rcpsp_max):
         Soluzione ottima trovata dal modello
     """
     model = _build_exact_model(orch, rcpsp_max)
+    return model.get_final_solution(time_limit=max_time)
 
-    return model.get_final_solution()
 
 def _build_exact_model(orch, rcpsp_max):
     """

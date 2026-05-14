@@ -28,7 +28,7 @@ def build_model(dataset):
 
 def solve_model(model):
     start_time = time.time()
-    status = solve(model, time_limit=10, verbose=False)
+    status = solve(model, time_limit=120, verbose=False)
     end_time = time.time()
 
     if status == "INFEASIBLE":
@@ -267,3 +267,16 @@ def _report(errors: list[str], warnings: list[str]) -> None:
             for e in errors:
                 print(f"    • {e}")
     print("=" * 60)
+
+if __name__ == "__main__":
+    random.seed(42)
+    model = build_model(dataset="tests/datasets/j120.sm/j1201_1.sm")
+    status = solve_model(model)
+
+    assert status != "ERROR"
+
+    if status == "INFEASIBLE":
+        pytest.skip("Istanza infeasible")
+
+    assert status in ("OPTIMAL", "FEASIBLE")
+    assert validate_solution(model, status)

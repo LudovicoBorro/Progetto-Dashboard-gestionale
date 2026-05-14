@@ -34,7 +34,7 @@ class ProjectCard:
                 controls=[
 
                     ft.Text(
-                        self.project["name"],
+                        self.project.name,
                         size=18,
                         weight=ft.FontWeight.BOLD
                     ),
@@ -42,9 +42,9 @@ class ProjectCard:
                     ft.Container(
                         padding=ft.Padding(10, 4, 10, 4),
                         border_radius=20,
-                        bgcolor=self._status_color(self.project["status"]),
+                        bgcolor=self._status_color(self.project.status),
                         content=ft.Text(
-                            self.project["status"],
+                            self.project.status,
                             size=12,
                             color=ft.Colors.WHITE
                         )
@@ -59,13 +59,13 @@ class ProjectCard:
                             ft.TextButton(
                                 "Apri",
                                 icon=ft.Icons.FOLDER_OPEN,
-                                on_click=lambda e: self.on_open(self.project["id"])
+                                on_click=lambda e: self.on_open(self.project.id)
                             ),
 
                             ft.TextButton(
-                                "Analytics",
+                                "Statistiche",
                                 icon=ft.Icons.ANALYTICS,
-                                on_click=lambda e: print("analytics")
+                                on_click=lambda e: print("Statistiche")
                             )
                         ]
                     )

@@ -24,24 +24,27 @@ class DataService:
         
         if is_bb:
             orchestrator_data = solver_output.solution.model_dump()
-            # La configurazione "vincitrice" del B&B (valori fissati)
             global_config = solver_output.config.model_dump()
+            results_meta = orchestrator_data.get("results") or {}
         else:
             orchestrator_data = solver_output if isinstance(solver_output, dict) else solver_output.model_dump()
-            global_config = orchestrator_data.get("results", {}).get("config", {})
+            results_meta = orchestrator_data.get("results") or {}
+            global_config = results_meta.get("config", {})
+
+
 
         # 2. Creazione Experiment
-        # Cerchiamo di capire il tipo di problema dai dati dell'orchestrator
-        problem_type_str = orchestrator_data.get("best", {}).get("best", {}).get("problem_type")
-        if not problem_type_str:
-            # Fallback: se c'è penalty o release_dates nell'output, è probabilmente RCPSP_MAX
-            problem_type_str = "RCPSP_MAX" if orchestrator_data.get("best", {}).get("best", {}).get("penalità") is not None else "RCPSP"
+        # Leggiamo il tipo di problema dal flag esplicito dell'orchestrator
+        is_rcpsp_max = orchestrator_data.get("is_rcpsp_max", False)
+        problem_type_str = "RCPSP_MAX" if is_rcpsp_max else "RCPSP"
         
         experiment = Experiment(
             project_id=project_id,
             problem_type=ProblemType(problem_type_str),
+
             method=Method(orchestrator_data.get("type", "heuristic_fallback")),
-            num_runs=orchestrator_data.get("results", {}).get("n_runs", 1) if orchestrator_data.get("results") else 1,
+            num_runs=results_meta.get("n_runs", 1),
+
             experiment_config_json={
                 "difficulty": orchestrator_data.get("problem_difficulty"),
                 "is_branch_and_bound": is_bb,

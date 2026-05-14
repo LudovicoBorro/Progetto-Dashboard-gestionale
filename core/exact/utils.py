@@ -23,6 +23,7 @@ def solve(self, time_limit: int = 300, verbose: bool = False) -> str:
 
     solver = cpm.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
+    solver.parameters.num_search_workers = 8  # Parallelismo per velocizzare
     solver.parameters.log_search_progress = verbose
 
     raw_status = solver.solve(model)

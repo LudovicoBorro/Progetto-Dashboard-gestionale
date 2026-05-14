@@ -30,7 +30,8 @@ class InputData(BaseModel):
     max_time: int = Field(default=600, ge=1, description="Tempo massimo di esecuzione in secondi per il Branch and Bound euristico")
 
     @model_validator(mode="after")
-    def check_dimensions(self) -> 'InputData':
+    def validate_and_detect(self) -> 'InputData':
+        # --- 1. VERIFICA DIMENSIONI ---
         if len(self.durations) != self.n:
             raise ValueError(f"La lunghezza di 'durations' ({len(self.durations)}) deve essere uguale a n ({self.n})")
         if self.release_dates is not None and len(self.release_dates) != self.n:
@@ -39,19 +40,38 @@ class InputData(BaseModel):
             raise ValueError(f"La lunghezza di 'due_dates' ({len(self.due_dates)}) deve essere uguale a n ({self.n})")
         if len(self.consumption) != self.n:
             raise ValueError(f"La lunghezza di 'consumption' ({len(self.consumption)}) deve essere uguale a n ({self.n})")
-        if self.limit_lookahead > self.n:
-            raise ValueError(f"Il limit_lookahead ({self.limit_lookahead}) deve essere minore o uguale a n ({self.n})")
-        # Verifica nomi attività
-        if self.activity_names is not None and len(self.activity_names) != self.n:
-            raise ValueError(f"La lunghezza di 'activity_names' ({len(self.activity_names)}) deve essere uguale a n ({self.n})")
         
-        # Verifica dimensioni matrice consumi e nomi risorse
         num_res = len(self.resources)
-        if self.resource_names is not None and len(self.resource_names) != num_res:
-            raise ValueError(f"La lunghezza di 'resource_names' ({len(self.resource_names)}) deve essere uguale al numero di risorse ({num_res})")
-            
         for i, cons in enumerate(self.consumption):
             if len(cons) != num_res:
                 raise ValueError(f"L'attività {i} ha {len(cons)} consumi, ma sono definite {num_res} risorse.")
+
+        # --- 2. AUTO-RILEVAMENTO TIPO PROBLEMA ---
         
+        # Rilevamento intervalli (has_intervals)
+        if not self.has_intervals:
+            has_tuple = any(isinstance(d, tuple) for d in self.durations) or \
+                        any(isinstance(r, tuple) for r in self.resources)
+            
+            if not has_tuple and self.release_dates:
+                has_tuple = any(isinstance(rd, tuple) for rd in self.release_dates if rd is not None)
+            if not has_tuple and self.due_dates:
+                has_tuple = any(isinstance(dd, tuple) for dd in self.due_dates if dd is not None)
+                
+            if has_tuple:
+                self.has_intervals = True
+
+        # Rilevamento RCPSP_MAX
+        if not self.rcpsp_max:
+            has_lags = any(len(p) > 2 for p in self.precedences)
+            has_dates = False
+            if self.release_dates:
+                has_dates = any(rd is not None and (isinstance(rd, tuple) or (isinstance(rd, int) and rd > 0)) for rd in self.release_dates)
+            if not has_dates and self.due_dates:
+                # Se le date di scadenza sono diverse dall'orizzonte (e non None)
+                has_dates = any(dd is not None and dd < self.horizon for dd in self.due_dates)
+            
+            if has_lags or has_dates or self.has_intervals:
+                self.rcpsp_max = True
+
         return self

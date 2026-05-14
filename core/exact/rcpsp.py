@@ -219,20 +219,21 @@ class Model:
 
         return sorted(schedule, key=lambda r: r["start"])
     
-    def get_final_solution(self):
+    def get_final_solution(self, time_limit: int = 300):
         """
         Metodo da chiamare per costruire il modello,
         risolverlo e restituire la soluzione.
         """
         self.build_model()
         start_time = time.time()
-        solve(self)
+        solve(self, time_limit=time_limit)
         end_time = time.time()
         schedule = self.get_schedule()
 
         return {"solution": self.solutions, "start": self.start_times, 
                 "makespan": self.makespan, "schedule": schedule, 
                 "elapsed_time": end_time - start_time}
+
 
 
     # PROPERTIES

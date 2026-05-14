@@ -118,27 +118,20 @@ class Model:
         Calcola gli earliest start ES[i] considerando:
         - precedenze generalizzate (min_lag)
         - release dates
-
-        Risolve un longest path su grafo aciclico.
         """
         graph = defaultdict(list)
         indegree = [0] * self._n
 
-        # costruzione grafo con pesi = min_lag
         for (i, j, min_lag, _) in self._precedences:
             graph[i].append((j, min_lag))
             indegree[j] += 1
 
-        # inizializzazione
         ES = [0] * self._n
-
-        # release dates
-        if self._release_dates is not None:
+        if self._release_dates:
             for i in range(self._n):
                 if self._release_dates[i] is not None:
                     ES[i] = max(ES[i], self._release_dates[i])
 
-        # topological order (Kahn)
         queue = deque([i for i in range(self._n) if indegree[i] == 0])
 
         while queue:
@@ -150,6 +143,8 @@ class Model:
                     queue.append(v)
 
         return ES
+
+
     
     def _latest_start(self):
         """
@@ -218,6 +213,30 @@ class Model:
                     f"Attività {i} infeasible: ES={ES[i]} > LS={LS[i]}"
                 )
 
+        # ── Ottimizzazione Orizzonte ──────────────────────────────────────────
+        safe_ub = sum(d if isinstance(d, int) else d[1] for d in self._durations)
+        for _, _, _, max_lag in self._precedences:
+            if max_lag is not None: safe_ub += max_lag
+        
+        effective_horizon = min(self._horizon, safe_ub * 2)
+        
+        # Ricalcolo LS raffinato
+        LS_refined = [effective_horizon] * self._n
+        LS_refined[self._n - 1] = effective_horizon
+        updated = True
+        while updated:
+            updated = False
+            for i, j, min_lag, max_lag in self._precedences:
+                if LS_refined[i] > LS_refined[j] - min_lag:
+                    LS_refined[i] = LS_refined[j] - min_lag
+                    updated = True
+                if max_lag is not None and LS_refined[j] > LS_refined[i] + max_lag:
+                    LS_refined[j] = LS_refined[i] + max_lag
+                    updated = True
+        LS = [min(LS[i], LS_refined[i]) for i in range(self._n)]
+        print(f"[Solver] Orizzonte: {effective_horizon}, ES: {min(ES)}-{max(ES)}, LS: {min(LS)}-{max(LS)}")
+
+
         # ── Variabili decisionali ─────────────────────────────────────────────
         start = {
             i: model.new_int_var(ES[i], LS[i], f"start_{i}")
@@ -235,8 +254,8 @@ class Model:
             for i in self._activities
         }
 
-        # Creo la variabile cmax
-        cmax = model.new_int_var(0, self._horizon, "makespan")
+        # Creo la variabile cmax limitata dall'orizzonte efficace
+        cmax = model.new_int_var(0, effective_horizon, "makespan")
 
         # ── Attività fittizia iniziale fissata a 0 ────────────────────────────
         model.add(start[0] == 0)
@@ -321,20 +340,21 @@ class Model:
 
         return sorted(schedule, key=lambda r: r["start"])
     
-    def get_final_solution(self):
+    def get_final_solution(self, time_limit: int = 300):
         """
         Metodo da chiamare per costruire il modello,
         risolverlo e restituire la soluzione.
         """
         self.build_model()
         start_time = time.time()
-        solve(self)
+        solve(self, time_limit=time_limit)
         end_time = time.time()
         schedule = self.get_schedule()
 
         return {"solution": self.solutions, "start": self.start_times, 
                 "makespan": self.makespan, "schedule": schedule, 
                 "elapsed_time": end_time - start_time}
+
     
 
     # PROPERTIES

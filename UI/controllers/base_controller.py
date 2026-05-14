@@ -1,0 +1,31 @@
+import flet as ft
+
+class BaseController:
+    """
+    Classe base per tutti i controller della UI.
+    Contiene la logica di navigazione condivisa (sidebar, menu, etc.).
+    """
+    def __init__(self, view):
+        self.view = view
+
+    def go_dashboard(self, e):
+        """Naviga alla dashboard."""
+        self.view.page.go("/")
+
+    def go_new_project(self, e):
+        """Naviga alla creazione di un nuovo progetto."""
+        print("Navigazione a Nuovo Progetto")
+        # self.view.page.go("/new_project")
+
+    def go_gantt(self, e):
+        """Naviga alla vista Gantt."""
+        print("Navigazione a Gantt")
+        # self.view.page.go("/gantt")
+
+    def go_stats(self, e):
+        """Naviga alla vista statistiche."""
+        print("Navigazione a Statistiche")
+
+    def go_settings(self, e):
+        """Naviga alle impostazioni."""
+        print("Navigazione a Impostazioni")

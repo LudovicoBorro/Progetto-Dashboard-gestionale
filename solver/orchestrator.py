@@ -116,10 +116,11 @@ class SolverOrchestrator:
             priority_weight = priority_weight if priority_weight != 1 else input_data.priority_weight
             tardiness_weight = tardiness_weight if tardiness_weight != 1 else input_data.tardiness_weight
             limit_lookahead = limit_lookahead if limit_lookahead != 5 else input_data.limit_lookahead
-            instant_sol = instant_sol if not instant_sol else input_data.instant_sol
+            instant_sol = instant_sol if instant_sol else input_data.instant_sol
             priority_rule = priority_rule or input_data.priority_rule
-            rcpsp_max = rcpsp_max if not rcpsp_max else input_data.rcpsp_max
-            has_intervals = has_intervals if not has_intervals else input_data.has_intervals
+            rcpsp_max = rcpsp_max if rcpsp_max else input_data.rcpsp_max
+            has_intervals = has_intervals if has_intervals else input_data.has_intervals
+
             max_nodes = max_nodes if max_nodes != 5000 else input_data.max_nodes
             max_time = max_time if max_time != 600 else input_data.max_time
 
@@ -190,7 +191,7 @@ class SolverOrchestrator:
             self._due_dates = processed.due_dates
         
         diff = self._calcola_diff()
-
+    
         if rcpsp_max:
             self._time_weight = time_weight
             self._resource_weight = resource_weight
@@ -211,7 +212,13 @@ class SolverOrchestrator:
                     rule=priority_rule,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(type="heuristic_single_start", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
+                return SoluzioneOrchestrator(
+                    type="heuristic_single_start", 
+                    problem_difficulty=diff, 
+                    is_rcpsp_max=rcpsp_max,
+                    results=all_results, 
+                    best=best_solution
+                ).model_dump()
             elif diff == "medium":
                 # In questo caso meglio il multistart soft
                 all_results, best_solution, _ = _run_sgs(
@@ -222,7 +229,13 @@ class SolverOrchestrator:
                     n_runs=50,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(type="heuristic_multi_start", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
+                return SoluzioneOrchestrator(
+                    type="heuristic_multi_start", 
+                    problem_difficulty=diff, 
+                    is_rcpsp_max=rcpsp_max,
+                    results=all_results, 
+                    best=best_solution
+                ).model_dump()
             else:
                 # In questo caso eseguo un multistart hard
                 all_results, best_solution, _ = _run_sgs(
@@ -233,19 +246,38 @@ class SolverOrchestrator:
                     n_runs=500,
                     top_k=top_k,
                 )
-                return SoluzioneOrchestrator(type="heuristic_multi_start", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
+                return SoluzioneOrchestrator(
+                    type="heuristic_multi_start", 
+                    problem_difficulty=diff, 
+                    is_rcpsp_max=rcpsp_max,
+                    results=all_results, 
+                    best=best_solution
+                ).model_dump()
         # CASO 2
         # Soluzione esatta o normale richiesta
         else:
             # Lancio metodo esatto
             try:
-                solution = _run_exact_model(self, rcpsp_max=rcpsp_max)
-                return SoluzioneOrchestrator(type="exact", problem_difficulty=diff, results=None, best=solution).model_dump()
+                solution = _run_exact_model(self, rcpsp_max=rcpsp_max, max_time=max_time)
+                return SoluzioneOrchestrator(
+                    type="exact", 
+                    problem_difficulty=diff, 
+                    is_rcpsp_max=rcpsp_max,
+                    results=None, 
+                    best=solution
+                ).model_dump()
+
             except Exception as e:
                 print(e)
                 print("Il modello esatto non ha trovato una soluzione ottimale o fattibile, eseguo fallback con euristiche...")
                 all_results, best_solution, _ = _run_sgs(self, rcpsp_max=rcpsp_max, mode="multi_start", rule=None, n_runs=500, top_k=top_k)
-                return SoluzioneOrchestrator(type="heuristic_fallback", problem_difficulty=diff, results=all_results, best=best_solution).model_dump()
+                return SoluzioneOrchestrator(
+                    type="heuristic_fallback", 
+                    problem_difficulty=diff, 
+                    is_rcpsp_max=rcpsp_max,
+                    results=all_results, 
+                    best=best_solution
+                ).model_dump()
 
     def _calcola_diff(self):
         """
