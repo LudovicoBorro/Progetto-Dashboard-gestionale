@@ -47,9 +47,11 @@ class SchedulingService:
                     session.refresh(experiment)
                     # Forziamo il caricamento dei schedules (essenziale per il sommario fuori dalla sessione)
                     _ = experiment.schedules 
+                    print("[DEBUG]: Forzato il refresh del DB.")
                 
                 # 5. Callback di successo
                 if on_success:
+                    print("[DEBUG]: Chiamata funzione on_success.")
                     on_success(experiment)
 
                     
@@ -77,6 +79,8 @@ class SchedulingService:
             else:
                 best_schedule = min(experiment.schedules, key=lambda s: s.makespan if s.makespan is not None else float('inf'))
 
+        print(f"[DEBUG]: Restituzione della best_schedule ottenuta dal DB: {best_schedule}")
+        
         return {
             "method": experiment.method,
             "difficulty": experiment.experiment_config_json.get("difficulty"),

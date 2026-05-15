@@ -54,6 +54,9 @@ class SchedulingController(BaseController):
             
         self.is_running = False
         summary = self.scheduling_service.get_summary(experiment)
+
+        print("[DEBUG]: Stampa in corso della soluzione letta dal DB...")
+        print(f"[DEBUG]: {summary}")
         
         # Aggiorniamo la UI
         self.view.show_loading(False)
@@ -64,6 +67,8 @@ class SchedulingController(BaseController):
         """Callback eseguita in caso di errore."""
         if self._is_cancelled:
             return
+        
+        print("[DEBUG]: Errore nel salvataggio o nella lettura del DB...")
             
         self.is_running = False
         self.view.show_loading(False)
