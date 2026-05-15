@@ -25,6 +25,7 @@ class Experiment(SQLModel, table=True):
     project_id: UUID = Field(foreign_key="project.id", index=True, nullable=False, description="ID del progetto")
     problem_type: ProblemType = Field(index=True, nullable=False, description="Tipo di problema", default=ProblemType.RCPSP)
     method: Method = Field(index=True, nullable=False, description="Metodo utilizzato")
+    search_strategy: str = Field(default="direct_solver", index=True, nullable=False, description="Strategia di ricerca (es. direct_solver, branch_and_bound)")
     num_runs: int = Field(index=True, nullable=False, description="Numero di runs", default=1)
     created_at: datetime = Field(index=True, default_factory=datetime.now, description="Data di creazione dell'esperimento")
 

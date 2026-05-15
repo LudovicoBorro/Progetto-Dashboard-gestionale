@@ -71,24 +71,23 @@ def test_orchestrator_heuristic():
 
 def _check_struttura(soluzione):
     assert soluzione is not None
-    assert "type" in soluzione
-    assert "best" in soluzione
-    assert "problem_difficulty" in soluzione
+    assert hasattr(soluzione, "solution_type")
+    assert hasattr(soluzione, "ranking")
+    assert hasattr(soluzione, "problem_difficulty")
 
 def _check_tipo(soluzione, expected_types):
-    assert soluzione["type"] in expected_types
-    assert soluzione["problem_difficulty"] in ("easy", "medium", "hard")
+    assert soluzione.solution_type in expected_types
+    assert soluzione.problem_difficulty in ("easy", "medium", "hard")
 
 def _check_makespan(soluzione):
-    # 'best' è il contenitore, 'best.best' è la soluzione singola migliore
-    best_sol = soluzione["best"]["best"]
-    assert "makespan" in best_sol
-    assert best_sol["makespan"] > 0
+    # ranking.best_solution è la soluzione singola migliore
+    best_sol = soluzione.ranking.best_solution
+    assert hasattr(best_sol, "makespan")
+    assert best_sol.makespan > 0
 
 def _check_schedule(soluzione, n):
-    best_sol = soluzione["best"]["best"]
-    # Pydantic dump usa il nome del campo 'soluzione'
-    schedule = best_sol.get("soluzione") or best_sol.get("schedule")
+    best_sol = soluzione.ranking.best_solution
+    schedule = best_sol.soluzione
     
     assert isinstance(schedule, list)
     assert len(schedule) == n + 2
@@ -102,7 +101,7 @@ def _check_schedule(soluzione, n):
 
 def _check_multistart(soluzione, tipo, diff):
     if tipo == "heuristic_multi_start":
-        results = soluzione["results"]
+        results = soluzione.results
         assert results is not None
         assert isinstance(results, dict)
         assert len(results) > 1
@@ -114,15 +113,15 @@ def _check_multistart(soluzione, tipo, diff):
 
             assert value.get("success") + int(value.get("failures")) == runs
 
-def _check_solutions(best_container, top_k):
-    # best_container è soluzione["best"]
-    assert best_container.get("best") is not None
+def _check_solutions(ranking, top_k):
+    # ranking è soluzione.ranking
+    assert ranking.best_solution is not None
 
-    if best_container.get("top_k_makespan") is not None:
-            assert len(best_container["top_k_makespan"]) <= top_k
+    if ranking.top_k_makespan:
+            assert len(ranking.top_k_makespan) <= top_k
 
-    if best_container.get("top_k_score") is not None:
-        assert len(best_container["top_k_score"]) <= top_k
+    if ranking.top_k_score:
+        assert len(ranking.top_k_score) <= top_k
 
 def _check_exact(soluzione, n):
 
@@ -146,12 +145,12 @@ def _check_heuristic(soluzione, top_k):
     # --- tipo ---
     _check_tipo(soluzione, expected_types=["heuristic_single_start", "heuristic_multi_start"])
 
-    best = soluzione["best"]
-    diff = soluzione["problem_difficulty"]
-    tipo = soluzione["type"]
+    ranking = soluzione.ranking
+    diff = soluzione.problem_difficulty
+    tipo = soluzione.solution_type
 
     # --- solutions ---
-    _check_solutions(best, top_k)
+    _check_solutions(ranking, top_k)
 
     # --- multistart ---
     _check_multistart(soluzione, tipo, diff)

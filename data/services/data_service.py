@@ -18,7 +18,7 @@ class DataService:
 
     def save_solver_result(self, project_id: uuid.UUID, solver_output: SolutionDTO) -> Experiment:
         """
-        Mappa e salva i risultati dell'orchestrator nel database con supporto completo a RCPSP/MAX e B&B.
+        Mappa e salva i risultati dell'orchestrator nel database usando il nuovo SolutionDTO.
         """
         # 1. Identificazione tipo di output e configurazione globale
         orchestrator_data = solver_output
@@ -44,7 +44,7 @@ class DataService:
         )
         self.experiment_repo.create(experiment)
 
-        # 3. Mappatura Activity ID
+        # 4. Mappatura Activity ID
         activities = self.activity_repo.get_by_project(project_id)
         activity_map: Dict[int, Activity] = {a.id_for_project: a for a in activities}
 

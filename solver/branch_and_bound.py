@@ -647,18 +647,36 @@ class BranchAndBoundSolver:
         return True
 
     def _extract_solution_schedule(self, solution):
-        if not isinstance(solution, dict):
-            return None
+        """
+        Estrae lo schedule (lista di attività) da un SolutionDTO o da una SingleSolution.
+        """
+        from solver.dataclasses.soluzione_orchestrator import SolutionDTO, SingleSolution
 
-        best = solution.get("best")
-        if best is None:
-            return None
+        if isinstance(solution, SolutionDTO):
+            best = solution.ranking.best_solution
+            return best.soluzione
+        
+        if isinstance(solution, SingleSolution):
+            return solution.soluzione
+            
+        if isinstance(solution, dict):
+            # Fallback legacy
+            best = solution.get("best")
+            if best is None:
+                return None
+            
+            # Gestione del doppio nesting legacy {"best": {"best": {...}}}
+            if isinstance(best, dict) and "best" in best:
+                inner = best["best"]
+                if isinstance(inner, dict):
+                    return inner.get("soluzione") or inner.get("schedule")
 
-        if isinstance(best.get("best"), dict):
-            inner = best["best"]
-            return inner.get("soluzione") or inner.get("schedule")
+            if isinstance(best, dict):
+                return best.get("soluzione") or best.get("schedule")
+            
+            return getattr(best, "soluzione", None)
 
-        return best.get("soluzione") or best.get("schedule")
+        return None
 
     @staticmethod
     def _normalize_config(config):
@@ -682,17 +700,19 @@ class BranchAndBoundSolver:
         return self._best_config
     
     def best_solution(self):
-
         if self._best_solution_orchestrator is None:
             return None
 
+        # Assicuriamoci che additional_info sia un dizionario
         if self._best_solution_orchestrator.additional_info is None:
             self._best_solution_orchestrator.additional_info = {}
 
+        # Aggiorniamo la strategia di ricerca
         self._best_solution_orchestrator.search_strategy = "branch_and_bound"
 
+        # Aggiungiamo metadati del B&B
         self._best_solution_orchestrator.additional_info.update({
-            "best_config": self._best_config,
+            "best_config": self._best_config.model_dump() if hasattr(self._best_config, "model_dump") else self._best_config,
             "best_ub": self._best_ub,
             "nodes_explored": self._n_chiamate,
         })

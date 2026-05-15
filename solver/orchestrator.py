@@ -219,8 +219,8 @@ class SolverOrchestrator:
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
-                        top_k_makespan=best_solution.get("top_k_makespan"),
-                        top_k_score=best_solution.get("top_k_score"),
+                        top_k_makespan=best_solution.get("top_k_makespan") or [],
+                        top_k_score=best_solution.get("top_k_score") or [],
                     ),
 
                     results=all_results,
@@ -243,8 +243,8 @@ class SolverOrchestrator:
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
-                        top_k_makespan=best_solution.get("top_k_makespan"),
-                        top_k_score=best_solution.get("top_k_score"),
+                        top_k_makespan=best_solution.get("top_k_makespan") or [],
+                        top_k_score=best_solution.get("top_k_score") or [],
                     ),
 
                     results=all_results,
@@ -267,8 +267,8 @@ class SolverOrchestrator:
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
-                        top_k_makespan=best_solution.get("top_k_makespan"),
-                        top_k_score=best_solution.get("top_k_score"),
+                        top_k_makespan=best_solution.get("top_k_makespan") or [],
+                        top_k_score=best_solution.get("top_k_score") or [],
                     ),
 
                     results=all_results,
@@ -306,8 +306,8 @@ class SolverOrchestrator:
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
-                        top_k_makespan=best_solution.get("top_k_makespan"),
-                        top_k_score=best_solution.get("top_k_score"),
+                        top_k_makespan=best_solution.get("top_k_makespan") or [],
+                        top_k_score=best_solution.get("top_k_score") or [],
                     ),
 
                     results=all_results,
@@ -453,26 +453,18 @@ if __name__ == '__main__':
     print(f"Soluzione migliore: {soluzione.ranking.best_solution}")
 
     if not type_exact:
-
         if type_rcpsp_max:
-
             print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
-
             for elem in soluzione.ranking.top_k_score[1:top_k]:
                 print(elem)
 
             print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
-
             for elem in soluzione.ranking.top_k_makespan[1:top_k]:
                 print(elem)
-
         else:
-
             print(f"\nAltre top {top_k-1} soluzioni:")
-
             for elem in soluzione.ranking.top_k_makespan[1:top_k]:
                 print(elem)
-
     print("==============================================================================================================")
 
     # Test per Branch and Bound
@@ -508,21 +500,15 @@ if __name__ == '__main__':
     )
 
     if type_rcpsp_max:
-
         print(f"\nAltre top {top_k-1} soluzioni ordinate per score:")
-
         for elem in soluzione.ranking.top_k_score[1:top_k]:
             print(elem)
 
         print(f"\nAltre top {top_k-1} soluzioni ordinate per makespan:")
-
         for elem in soluzione.ranking.top_k_makespan[1:top_k]:
             print(elem)
-
     else:
-
         print(f"\nAltre top {top_k-1} soluzioni:")
-
         for elem in soluzione.ranking.top_k_makespan[1:top_k]:
             print(elem)
 

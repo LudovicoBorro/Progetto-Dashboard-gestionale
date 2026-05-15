@@ -60,7 +60,7 @@ def get_best_solution(best_solutions, top_k):
     return {
         "best": best,
         "top_k_makespan": sorted_by_makespan[:top_k],
-        "top_k_score": None
+        "top_k_score": []
     }
 
 def test_multistart_stats_parallel(sgs, priority_list, n_runs=100):
