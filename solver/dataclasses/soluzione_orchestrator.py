@@ -45,6 +45,30 @@ class SingleSolution(BaseModel):
 
     elapsed_time: Optional[float] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def capture_extra_info(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        
+        # Campi conosciuti (inclusi alias)
+        known_fields = set(cls.model_fields.keys())
+        # Aggiungiamo manualmente gli alias più comuni per sicurezza
+        known_fields.update(["type", "soluzione", "schedule", "schedule_dict", "start", "penalty", "penalità"])
+
+        extra = {}
+        for key in list(data.keys()):
+            if key not in known_fields:
+                extra[key] = data.pop(key)
+        
+        if extra:
+            if "rank_info" not in data or data["rank_info"] is None:
+                data["rank_info"] = extra
+            else:
+                data["rank_info"].update(extra)
+                
+        return data
+
 
 # =====================================================================
 # CONTAINER RANKING

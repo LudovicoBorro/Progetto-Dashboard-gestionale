@@ -17,135 +17,110 @@ class DataService:
 
     def save_solver_result(self, project_id: uuid.UUID, solver_output: Any) -> Experiment:
         """
-        Mappa e salva i risultati dell'orchestrator nel database con supporto completo a RCPSP/MAX e B&B.
+        Mappa e salva i risultati dell'orchestrator nel database usando il nuovo SolutionDTO.
         """
-        # 1. Identificazione tipo di output e configurazione globale
-        is_bb = hasattr(solver_output, 'config') and hasattr(solver_output, 'solution')
-        
-        if is_bb:
-            orchestrator_data = solver_output.solution.model_dump()
-            global_config = solver_output.config.model_dump()
-            results_meta = orchestrator_data.get("results") or {}
+        from solver.dataclasses.soluzione_orchestrator import SolutionDTO, SingleSolution
+
+        # 1. Normalizzazione Input
+        if not isinstance(solver_output, SolutionDTO):
+            # Se arriva un dict (legacy), Pydantic lo convalida
+            solution_dto = SolutionDTO(**solver_output) if isinstance(solver_output, dict) else solver_output
         else:
-            orchestrator_data = solver_output if isinstance(solver_output, dict) else solver_output.model_dump()
-            results_meta = orchestrator_data.get("results") or {}
-            global_config = results_meta.get("config", {})
+            solution_dto = solver_output
 
-
-
-        # 2. Creazione Experiment
-        # Leggiamo il tipo di problema dal flag esplicito dell'orchestrator
-        is_rcpsp_max = orchestrator_data.get("is_rcpsp_max", False)
-        problem_type_str = "RCPSP_MAX" if is_rcpsp_max else "RCPSP"
+        # 2. Estrazione Metadati Globali
+        orchestrator_data = solution_dto.model_dump(by_alias=True)
+        results_meta = solution_dto.results or {}
         
+        # Cerchiamo la configurazione migliore (fondamentale per B&B)
+        # Se siamo in B&B, la config è dentro additional_info["best_config"]
+        best_config = solution_dto.additional_info.get("best_config") or results_meta.get("config", {})
+
+        # 3. Creazione Experiment
         experiment = Experiment(
             project_id=project_id,
-            problem_type=ProblemType(problem_type_str),
-
-            method=Method(orchestrator_data.get("type", "heuristic_fallback")),
-            num_runs=results_meta.get("n_runs", 1),
+            problem_type=ProblemType(solution_dto.problem_type),
+            method=Method(solution_dto.solution_type),
+            search_strategy=solution_dto.search_strategy,
+            num_runs=results_meta.get("n_runs", 1) if isinstance(results_meta, dict) else 1,
 
             experiment_config_json={
-                "difficulty": orchestrator_data.get("problem_difficulty"),
-                "is_branch_and_bound": is_bb,
-                "global_solver_results": orchestrator_data.get("results")
+                "difficulty": solution_dto.problem_difficulty,
+                "search_strategy": solution_dto.search_strategy,
+                "global_solver_results": results_meta,
+                "additional_info": solution_dto.additional_info
             }
         )
         self.experiment_repo.create(experiment)
 
-        # 3. Mappatura Activity ID
+        # 4. Mappatura Activity ID
         activities = self.activity_repo.get_by_project(project_id)
         activity_map: Dict[int, Activity] = {a.id_for_project: a for a in activities}
 
-        # 4. Elaborazione delle Top-K soluzioni
-        best_data = orchestrator_data.get("best", {})
-        seen_schedules = set()
-        all_top_solutions = []
-        
-        # Consideriamo sia le migliori per makespan che per score
-        sources = [best_data.get("top_k_makespan", []), best_data.get("top_k_score", [])]
-        if best_data.get("best"):
-            sources.append([best_data.get("best")])
+        # 5. Elaborazione delle Top-K soluzioni
+        ranking = solution_dto.ranking
+        seen_signatures = set()
+        unique_solutions: List[SingleSolution] = []
 
-        for source in sources:
-            for sol in source:
-                # La firma della soluzione è lo schedule (id -> start_time)
-                sol_signature = str(sol.get("soluzione") or sol.get("schedule"))
-                if sol_signature not in seen_schedules:
-                    seen_schedules.add(sol_signature)
-                    all_top_solutions.append(sol)
+        def add_unique(sol: SingleSolution):
+            if not sol: return
+            # La firma è lo schedule dict (start times)
+            sig = str(sol.schedule_dict)
+            if sig not in seen_signatures:
+                seen_signatures.add(sig)
+                unique_solutions.append(sol)
 
-        # 5. Salvataggio degli Schedule
-        for sol in all_top_solutions:
-            # Una soluzione può avere una configurazione specifica (specialmente in B&B)
-            # Se non presente, usiamo la global_config dell'esperimento
-            sol_config = sol.get("config") or global_config
+        add_unique(ranking.best_solution)
+        for sol in ranking.top_k_makespan: add_unique(sol)
+        for sol in ranking.top_k_score: add_unique(sol)
+
+        # 6. Salvataggio degli Schedule
+        for sol in unique_solutions:
+            # Una soluzione può avere la sua config (nel caso del B&B che esplora scenari diversi)
+            sol_config = getattr(sol, "rank_info", {}).get("config") if sol.rank_info else None
+            sol_config = sol_config or best_config
 
             new_schedule = Schedule(
                 experiment_id=experiment.id,
-                makespan=sol.get("makespan"),
-                score=sol.get("score"),
+                makespan=sol.makespan,
+                score=sol.score,
                 config_json={
-                    "regola_usata": sol.get("regola"),
-                    "penalità_totale": sol.get("penalità"),
+                    "regola_usata": sol.regola,
+                    "penalità_totale": sol.penalty,
                     "parametri_run": sol_config,
-                    "solver_metadata": {k: v for k, v in sol.items() if k not in ['soluzione', 'schedule']}
+                    "elapsed_time": sol.elapsed_time,
+                    "solver_metadata": sol.rank_info
                 }
             )
             self.schedule_repo.create(new_schedule)
 
-            # 6. Salvataggio ScheduleActivity
-            # L'orchestrator può ritornare lo schedule come lista di dict o come dict id->start
-            raw_sol = sol.get("soluzione") or sol.get("schedule")
-            
-            # Normalizziamo lo schedule in un dizionario {id: {start, end, duration}}
-            schedule_details = {}
-            if isinstance(raw_sol, list):
-                for item in raw_sol:
+            # 7. Salvataggio ScheduleActivity
+            # Usiamo sol.soluzione (lista di dict) che è il formato standard per il salvataggio
+            if sol.soluzione:
+                for item in sol.soluzione:
                     act_id = item.get("activity")
-                    schedule_details[act_id] = {
-                        "start": item.get("start"),
-                        "end": item.get("end"),
-                        "duration": item.get("end") - item.get("start")
-                    }
-            elif isinstance(raw_sol, dict):
-                # Se è un dict, le durate sono spesso in un campo separato
-                durations = sol.get("durations") or sol_config.get("durations", {})
-                for act_id_str, start in raw_sol.items():
-                    act_id = int(act_id_str)
-                    dur = durations[act_id] if isinstance(durations, list) else durations.get(act_id_str, 0)
-                    schedule_details[act_id] = {
-                        "start": start,
-                        "end": start + dur,
-                        "duration": dur
-                    }
+                    if act_id in activity_map:
+                        activity = activity_map[act_id]
+                        
+                        # Recupero vincoli temporali dalla config se presenti (per visualizzazione Gantt)
+                        release_date = None
+                        deadline = None
+                        if sol_config:
+                            rd_list = sol_config.get("release_dates")
+                            dd_list = sol_config.get("due_dates")
+                            if rd_list and act_id < len(rd_list): release_date = rd_list[act_id]
+                            if dd_list and act_id < len(dd_list): deadline = dd_list[act_id]
 
-            # Salvataggio effettivo
-            for act_id, times in schedule_details.items():
-                if act_id in activity_map:
-                    activity = activity_map[act_id]
-                    
-                    # Estraiamo info aggiuntive dalla config (fondamentale per RCPSP/MAX)
-                    release_date = None
-                    deadline = None
-                    if sol_config:
-                        rd_list = sol_config.get("release_dates")
-                        dd_list = sol_config.get("due_dates")
-                        if rd_list and act_id < len(rd_list): release_date = rd_list[act_id]
-                        if dd_list and act_id < len(dd_list): deadline = dd_list[act_id]
-
-                    sa = ScheduleActivity(
-                        schedule_id=new_schedule.id,
-                        activity_id=activity.id,
-                        start_time=times["start"],
-                        end_time=times["end"],
-                        duration=times["duration"],
-                        # Il consumo di risorse è fisso per l'attività nel progetto (master data)
-                        # ma lo salviamo qui per facilitare la visualizzazione del Gantt "caricato"
-                        resource_usage=activity.activity_config_json.get("resource_requirements", {}),
-                        release_date=release_date,
-                        deadline=deadline
-                    )
-                    self.sa_repo.create(sa)
+                        sa = ScheduleActivity(
+                            schedule_id=new_schedule.id,
+                            activity_id=activity.id,
+                            start_time=item.get("start"),
+                            end_time=item.get("end"),
+                            duration=item.get("end") - item.get("start"),
+                            resource_usage=activity.activity_config_json.get("resource_requirements", {}),
+                            release_date=release_date,
+                            deadline=deadline
+                        )
+                        self.sa_repo.create(sa)
 
         return experiment
