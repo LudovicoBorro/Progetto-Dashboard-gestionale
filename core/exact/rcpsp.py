@@ -232,6 +232,7 @@ class Model:
 
         return {"solution": self.solutions, "start": self.start_times, 
                 "makespan": self.makespan, "schedule": schedule, 
+                "penalty": 0, "score": float(self.makespan),
                 "elapsed_time": end_time - start_time}
 
 

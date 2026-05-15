@@ -20,7 +20,8 @@ def test_save_rcpsp_max_result(session: Session):
     data_service = DataService(session)
 
     # 1. Setup
-    project = Project(name="RCPSP/MAX Test")
+    from datetime import datetime, timedelta
+    project = Project(name="RCPSP/MAX Test", end_date=datetime.now() + timedelta(days=30))
     project_repo.create(project)
     
     # Attività con resource requirements nel JSON
@@ -33,9 +34,9 @@ def test_save_rcpsp_max_result(session: Session):
     simulated_output = {
         "type": "exact",
         "problem_difficulty": "easy",
+        "problem_type": "RCPSP_MAX",
         "best": {
             "best": {
-                "problem_type": "RCPSP_MAX",
                 "makespan": 15,
                 "penalità": 2.0,
                 "score": 19.0,
@@ -68,35 +69,29 @@ def test_save_bb_result(session: Session):
     activity_repo = ActivityRepository(session)
     data_service = DataService(session)
 
-    project = Project(name="B&B Test")
+    from datetime import datetime, timedelta
+    project = Project(name="B&B Test", end_date=datetime.now() + timedelta(days=30))
     project_repo.create(project)
     activity_repo.create(Activity(id_for_project=0, name="Task 0", project_id=project.id, activity_config_json={}))
 
-    # Simulo l'oggetto BestSolutionBAndB tramite una classe dummy
-    class DummyBB:
-        def __init__(self, config, solution):
-            self.config = config
-            self.solution = solution
-
-    class DummySolution:
-        def __init__(self, data): self.data = data
-        def model_dump(self): return self.data
-
-    class DummyConfig:
-        def __init__(self, data): self.data = data
-        def model_dump(self): return self.data
-
-    bb_output = DummyBB(
-        config=DummyConfig({"durations": [10], "resources": [5]}),
-        solution=DummySolution({
-            "type": "heuristic_multi_start",
-            "best": {
-                "best": {"makespan": 10, "schedule": {"0": 0}}
-            }
-        })
-    )
+    # Simulo un output compatibile con SolutionDTO tramite dict (legacy support)
+    bb_output = {
+        "type": "heuristic_multi_start",
+        "solution_type": "heuristic_multi_start",
+        "problem_difficulty": "medium",
+        "search_strategy": "branch_and_bound",
+        "additional_info": {
+            "best_config": {"durations": [10], "resources": [5]},
+            "nodes_explored": 42
+        },
+        "best": {
+            "best": {"makespan": 10, "soluzione": [{"activity": 0, "start": 0, "end": 10}]}
+        }
+    }
 
     experiment = data_service.save_solver_result(project.id, bb_output)
     
-    assert experiment.experiment_config_json["is_branch_and_bound"] is True
+    assert experiment.method == Method.HEURISTIC_MULTI_START
+    assert experiment.search_strategy == "branch_and_bound"
+    assert experiment.experiment_config_json["additional_info"]["nodes_explored"] == 42
     assert experiment.schedules[0].config_json["parametri_run"]["durations"] == [10]

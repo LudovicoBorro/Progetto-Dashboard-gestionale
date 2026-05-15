@@ -87,6 +87,7 @@ def test_db_flow():
             project_id=project.id, 
             problem_type=ProblemType.RCPSP_MAX,
             method=Method.HEURISTIC_MULTI_START,
+            search_strategy="direct_solver",
             num_runs=2
         )
         experiment_repo.create(experiment)
