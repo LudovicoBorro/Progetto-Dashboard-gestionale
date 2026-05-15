@@ -48,7 +48,15 @@ class BaseView(ft.View):
             self.build_view()
 
     def update(self):
-        if self.page:
-            self.page.update()
-        elif self._page_ref:
-            self._page_ref.update()
+        page = self.page or self._page_ref
+        if not page:
+            return
+
+        try:
+            page.update()
+        except Exception:
+            # Fallback utile quando update viene richiesto da thread worker
+            if hasattr(page, "schedule_update"):
+                page.schedule_update()
+            else:
+                raise

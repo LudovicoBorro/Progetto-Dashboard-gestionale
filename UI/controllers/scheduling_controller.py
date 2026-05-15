@@ -38,10 +38,19 @@ class SchedulingController(BaseController):
     def _dispatch_to_ui(self, callback, *args):
         """Esegue callback sul thread UI quando disponibile."""
         page = self.view.page or getattr(self.view, "_page_ref", None)
-        if page and hasattr(page, "call_from_thread"):
-            page.call_from_thread(callback, *args)
-        else:
+        if not page:
             callback(*args)
+            return
+
+        # Flet >=0.20: API legacy
+        if hasattr(page, "call_from_thread"):
+            page.call_from_thread(callback, *args)
+            return
+
+        # Flet versions without call_from_thread: esegue callback e richiede redraw asincrono
+        callback(*args)
+        if hasattr(page, "schedule_update"):
+            page.schedule_update()
 
     def stop_scheduling(self, e):
         """Interrompe visivamente la schedulazione (sgancio)."""
