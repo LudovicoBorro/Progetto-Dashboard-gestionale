@@ -30,9 +30,27 @@ class SchedulingController(BaseController):
         self.scheduling_service.run_scheduling(
             project_id=self.project.id,
             params=params,
-            on_success=self._on_scheduling_success,
-            on_error=self._on_scheduling_error
+            on_success=lambda experiment: self._dispatch_to_ui(self._on_scheduling_success, experiment),
+            on_error=lambda error_message: self._dispatch_to_ui(self._on_scheduling_error, error_message)
         )
+
+
+    def _dispatch_to_ui(self, callback, *args):
+        """Esegue callback sul thread UI quando disponibile."""
+        page = self.view.page or getattr(self.view, "_page_ref", None)
+        if not page:
+            callback(*args)
+            return
+
+        # Flet >=0.20: API legacy
+        if hasattr(page, "call_from_thread"):
+            page.call_from_thread(callback, *args)
+            return
+
+        # Flet versions without call_from_thread: esegue callback e richiede redraw asincrono
+        callback(*args)
+        if hasattr(page, "schedule_update"):
+            page.schedule_update()
 
     def stop_scheduling(self, e):
         """Interrompe visivamente la schedulazione (sgancio)."""
