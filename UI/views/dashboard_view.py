@@ -16,6 +16,10 @@ class DashboardView(BaseView):
 
         projects = self.controller.get_projects()
 
+        def status_label(project):
+            status = project.status
+            return str(getattr(status, "value", status)).lower()
+
         # ---------------- HEADER ----------------
         header = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -44,10 +48,10 @@ class DashboardView(BaseView):
                 alignment=ft.MainAxisAlignment.SPACE_AROUND,
                 controls=[
                     self._stat_card("Totale Progetti", len(projects)),
-                    self._stat_card("Completati", len([p for p in projects if "completato" in p.status.lower()])),
-                    self._stat_card("Da schedulare", len([p for p in projects if "schedulare" in p.status.lower()])),
-                    self._stat_card("In esecuzione", len([p for p in projects if "esecuzione" in p.status.lower()])),
-                    self._stat_card("Sospesi", len([p for p in projects if "sospeso" in p.status.lower()])),
+                    self._stat_card("Completati", len([p for p in projects if "complet" in status_label(p)])),
+                    self._stat_card("Schedulati", len([p for p in projects if "schedulat" in status_label(p) and "da sched" not in status_label(p)])),
+                    self._stat_card("Da schedulare", len([p for p in projects if "da sched" in status_label(p)])),
+                    self._stat_card("Sospesi", len([p for p in projects if "sospes" in status_label(p)])),
                 ]
             )
         )

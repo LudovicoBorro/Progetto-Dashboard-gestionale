@@ -8,20 +8,27 @@ class ProjectCard:
         self.project = project
         self.on_open = on_open
 
+    def _status_label(self):
+        status = self.project.status
+        return getattr(status, "value", status)
+
     def _status_color(self, status: str):
 
-        status = status.lower()
+        status = str(status).lower()
 
         if "complet" in status:
             return ft.Colors.GREEN
-        elif "esec" in status:
-            return ft.Colors.ORANGE
         elif "da sched" in status:
             return ft.Colors.RED
+        elif "schedulat" in status:
+            return ft.Colors.BLUE
+        elif "sospes" in status:
+            return ft.Colors.ORANGE
         else:
             return ft.Colors.BLUE
 
     def build(self):
+        status_label = self._status_label()
 
         return ft.Container(
             width=320,
@@ -42,9 +49,9 @@ class ProjectCard:
                     ft.Container(
                         padding=ft.Padding(10, 4, 10, 4),
                         border_radius=20,
-                        bgcolor=self._status_color(self.project.status),
+                        bgcolor=self._status_color(status_label),
                         content=ft.Text(
-                            self.project.status,
+                            status_label,
                             size=12,
                             color=ft.Colors.WHITE
                         )

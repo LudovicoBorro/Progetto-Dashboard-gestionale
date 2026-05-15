@@ -13,8 +13,6 @@ class Activity(SQLModel, table=True):
     project_id: UUID = Field(foreign_key="project.id", index=True, nullable=False, description="ID del progetto")
     id_for_project: int = Field(index=True, nullable=False, description="ID dell'attività all'interno del progetto (es. 0, 1, 2...)", ge=0)
     name: str = Field(index=True, nullable=False, description="Nome dell'attività")
-    is_dummy: bool = Field(default=False, index=True, nullable=False, description="Indica se l'attività è dummy")
-    dummy_spec: str = Field(default=None, description="Specifica dummy (es. 'SOURCE' o 'END')", index=True, nullable=True)
     description: Optional[str] = Field(default=None, description="Descrizione dell'attività")
     
     # Store complex activity input (intervals, tuples, etc.)

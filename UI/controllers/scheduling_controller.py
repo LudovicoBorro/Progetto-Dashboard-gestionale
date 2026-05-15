@@ -26,20 +26,31 @@ class SchedulingController(BaseController):
         self.view.show_loading(True)
         self.view.update()
 
+        page = self.view.page or getattr(self.view, "_page_ref", None)
+        thread_runner = page.run_thread if page and hasattr(page, "run_thread") else None
+
         # 3. Chiamata al service
         self.scheduling_service.run_scheduling(
             project_id=self.project.id,
             params=params,
             on_success=lambda experiment: self._dispatch_to_ui(self._on_scheduling_success, experiment),
-            on_error=lambda error_message: self._dispatch_to_ui(self._on_scheduling_error, error_message)
+            on_error=lambda error_message: self._dispatch_to_ui(self._on_scheduling_error, error_message),
+            thread_runner=thread_runner
         )
 
-
     def _dispatch_to_ui(self, callback, *args):
-        """Esegue callback sul thread UI quando disponibile."""
+        """Esegue la callback sul loop Flet della pagina."""
         page = self.view.page or getattr(self.view, "_page_ref", None)
-        if page and hasattr(page, "call_from_thread"):
-            page.call_from_thread(callback, *args)
+
+        async def run_on_page_loop():
+            callback(*args)
+            page.update()
+
+        if page and hasattr(page, "run_task"):
+            page.run_task(run_on_page_loop)
+        elif page:
+            callback(*args)
+            page.update()
         else:
             callback(*args)
 
@@ -63,9 +74,6 @@ class SchedulingController(BaseController):
             
         self.is_running = False
         summary = self.scheduling_service.get_summary(experiment)
-
-        print("[DEBUG]: Stampa in corso della soluzione letta dal DB...")
-        print(f"[DEBUG]: {summary}")
         
         # Aggiorniamo la UI
         self.view.show_loading(False)
@@ -76,8 +84,6 @@ class SchedulingController(BaseController):
         """Callback eseguita in caso di errore."""
         if self._is_cancelled:
             return
-        
-        print("[DEBUG]: Errore nel salvataggio o nella lettura del DB...")
             
         self.is_running = False
         self.view.show_loading(False)

@@ -1,11 +1,12 @@
 import uuid
 from typing import Union, Dict, List, Any
 from sqlmodel import Session
-from ..models import Experiment, Schedule, ScheduleActivity, Activity, ProblemType, Method
+from ..models import Experiment, Schedule, ScheduleActivity, Activity, ProblemType, Method, ProjectStatus
 from ..repositories.experiment_repository import ExperimentRepository
 from ..repositories.schedule_repository import ScheduleRepository
 from ..repositories.schedule_activity_repository import ScheduleActivityRepository
 from ..repositories.activity_repository import ActivityRepository
+from ..repositories.project_repository import ProjectRepository
 from solver.dataclasses.soluzione_orchestrator import SolutionDTO
 
 class DataService:
@@ -15,6 +16,7 @@ class DataService:
         self.schedule_repo = ScheduleRepository(session)
         self.sa_repo = ScheduleActivityRepository(session)
         self.activity_repo = ActivityRepository(session)
+        self.project_repository = ProjectRepository(session)
 
     def save_solver_result(self, project_id: uuid.UUID, solver_output: SolutionDTO) -> Experiment:
         """
@@ -104,6 +106,14 @@ class DataService:
 
                     activity = activity_map[act_id]
 
+                    consumption = activity.activity_config_json.get("consumption", {})
+                    resource_usage = {}
+                    for i, cons in enumerate(consumption):
+                        resource_usage["R"+str((i+1))] = cons
+
+                    release_date = activity.activity_config_json.get("release_date")
+                    due_date = activity.activity_config_json.get("due_date")
+
                     sa = ScheduleActivity(
                         schedule_id=new_schedule.id,
                         activity_id=activity.id,
@@ -112,9 +122,9 @@ class DataService:
                         end_time=item["end"],
                         duration=item["end"] - item["start"],
 
-                        resource_usage=activity.activity_config_json.get(
-                            "resource_requirements", {}
-                        )
+                        resource_usage=resource_usage,
+                        release_date=release_date,
+                        deadline=due_date
                     )
 
                     self.sa_repo.create(sa)
@@ -152,6 +162,8 @@ class DataService:
                     )
 
                     self.sa_repo.create(sa)
+
+        self.project_repository.update_status(project_id, ProjectStatus.SCHEDULED)
 
         print("[DEBUG]: Salvato correttamente i dati nel DB.")
         return experiment

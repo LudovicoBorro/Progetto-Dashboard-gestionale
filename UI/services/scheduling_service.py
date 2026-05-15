@@ -16,7 +16,8 @@ class SchedulingService:
         project_id: uuid.UUID, 
         params: Dict[str, Any],
         on_success: Optional[Callable[[Experiment], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        thread_runner: Optional[Callable[[Callable[[], None]], None]] = None
     ):
         """
         Esegue la schedulazione in un thread separato per non bloccare la UI.
@@ -34,8 +35,6 @@ class SchedulingService:
                 
                 # 3. Esecuzione Solver
                 solver_result = self._orchestrator.choose_model(input_data=input_data, **params)
-
-                print(solver_result)
                 
                 # 4. Salvataggio risultati nel DB
                 with get_session() as session:
@@ -47,24 +46,24 @@ class SchedulingService:
                     session.refresh(experiment)
                     # Forziamo il caricamento dei schedules (essenziale per il sommario fuori dalla sessione)
                     _ = experiment.schedules 
-                    print("[DEBUG]: Forzato il refresh del DB.")
                 
                 # 5. Callback di successo
                 if on_success:
-                    print("[DEBUG]: Chiamata funzione on_success.")
                     on_success(experiment)
 
                     
             except Exception as e:
                 import traceback
-                print(f"Errore durante la schedulazione: {e}")
                 traceback.print_exc()
                 if on_error:
                     on_error(str(e))
 
         # Lancio il thread
-        thread = threading.Thread(target=task, daemon=True)
-        thread.start()
+        if thread_runner:
+            thread_runner(task)
+        else:
+            thread = threading.Thread(target=task, daemon=True, name="SchedulingWorker")
+            thread.start()
 
     @staticmethod
     def get_summary(experiment: Experiment) -> Dict[str, Any]:
@@ -79,8 +78,6 @@ class SchedulingService:
             else:
                 best_schedule = min(experiment.schedules, key=lambda s: s.makespan if s.makespan is not None else float('inf'))
 
-        print(f"[DEBUG]: Restituzione della best_schedule ottenuta dal DB: {best_schedule}")
-        
         return {
             "method": experiment.method,
             "difficulty": experiment.experiment_config_json.get("difficulty"),

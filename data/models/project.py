@@ -4,10 +4,17 @@ from sqlalchemy import Column
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel, Relationship
 from typing import List, Optional, TYPE_CHECKING
+from enum import Enum
 
 if TYPE_CHECKING:
     from .activity import Activity
     from .experiment import Experiment
+
+class ProjectStatus(str, Enum):
+    NOTSCHEDULED = "Da schedulare"          # Progetto che non ha ancora una schedulazione
+    SCHEDULED = "Schedulato"                # Progetto che ha almeno una schedulazione
+    COMPLETED = "Completato"                # Progetto terminato, tutti i task svolti
+    SUSPENDED = "Sospeso"                   # Progetto sospeso, accantonato
 
 class Project(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -17,7 +24,7 @@ class Project(SQLModel, table=True):
     last_edited_at: datetime = Field(default_factory=datetime.now, description="Data di aggiornamento del progetto")
     start_date: datetime = Field(default_factory=datetime.now, description="Data di inizio del progetto", index=True, nullable=False)
     end_date: datetime = Field(description="Data potenziale di fine progetto", index=True, nullable=False)
-    status: Optional[str] = Field(default="Da schedulare", description="Stato del progetto") # Da schedulare, Completato, In esecuzione, Sospeso
+    status: ProjectStatus = Field(default=ProjectStatus.NOTSCHEDULED, index=True, nullable=False, description="Stato del progetto")
     num_activities: int = Field(default=0, description="Numero di attività del progetto", nullable=False, ge=0, index=True)
     horizon_days: int = Field(default=0, description="Numero di giorni di orizzonte temporale del progetto", nullable=False, ge=0, index=True)
     initial_budget: float = Field(default=0, description="Budget iniziale del progetto", nullable=False, ge=0.0, index=True)

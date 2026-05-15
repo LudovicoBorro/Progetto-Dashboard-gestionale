@@ -159,7 +159,10 @@ class SchedulingView(BaseView):
         self.controls = [
             ft.Container(
                 padding=30,
+                expand=True,
                 content=ft.Column(
+                    expand=True,
+                    scroll=ft.ScrollMode.AUTO,
                     spacing=20,
                     controls=[
                         # Header

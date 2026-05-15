@@ -1,6 +1,7 @@
 from sqlmodel import Session, select
 from ..models.project import Project
 from .base_repository import BaseRepository
+import uuid
 
 class ProjectRepository(BaseRepository[Project]):
     """
@@ -18,3 +19,8 @@ class ProjectRepository(BaseRepository[Project]):
         except Exception as e:
             self.session.rollback()
             raise
+
+    def update_status(self, project_id: uuid.UUID, status: str):
+        project = self.get_by_id(project_id)
+        project.status = status
+        return project
