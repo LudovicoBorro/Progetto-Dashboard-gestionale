@@ -236,7 +236,7 @@ class SchedulingView(BaseView):
                 ]),
                 ft.Divider(height=1, color=ft.Colors.WHITE10),
                 ft.Row([
-                    ft.Text(f"Metodo: {summary['method']}", size=14, color=ft.Colors.WHITE70),
+                    ft.Text(f"Metodo: {summary['method'].value}", size=14, color=ft.Colors.WHITE70),
                     ft.VerticalDivider(),
                     ft.Text(f"Ora: {summary['created_at']}", size=14, color=ft.Colors.WHITE70),
                 ]),

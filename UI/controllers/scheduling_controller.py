@@ -30,9 +30,18 @@ class SchedulingController(BaseController):
         self.scheduling_service.run_scheduling(
             project_id=self.project.id,
             params=params,
-            on_success=self._on_scheduling_success,
-            on_error=self._on_scheduling_error
+            on_success=lambda experiment: self._dispatch_to_ui(self._on_scheduling_success, experiment),
+            on_error=lambda error_message: self._dispatch_to_ui(self._on_scheduling_error, error_message)
         )
+
+
+    def _dispatch_to_ui(self, callback, *args):
+        """Esegue callback sul thread UI quando disponibile."""
+        page = self.view.page or getattr(self.view, "_page_ref", None)
+        if page and hasattr(page, "call_from_thread"):
+            page.call_from_thread(callback, *args)
+        else:
+            callback(*args)
 
     def stop_scheduling(self, e):
         """Interrompe visivamente la schedulazione (sgancio)."""
@@ -54,6 +63,9 @@ class SchedulingController(BaseController):
             
         self.is_running = False
         summary = self.scheduling_service.get_summary(experiment)
+
+        print("[DEBUG]: Stampa in corso della soluzione letta dal DB...")
+        print(f"[DEBUG]: {summary}")
         
         # Aggiorniamo la UI
         self.view.show_loading(False)
@@ -64,6 +76,8 @@ class SchedulingController(BaseController):
         """Callback eseguita in caso di errore."""
         if self._is_cancelled:
             return
+        
+        print("[DEBUG]: Errore nel salvataggio o nella lettura del DB...")
             
         self.is_running = False
         self.view.show_loading(False)

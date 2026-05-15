@@ -127,6 +127,8 @@ class SolutionDTO(BaseModel):
 
     problem_difficulty: str
 
+    n_runs: int 
+
     problem_type: Literal["RCPSP", "RCPSP_MAX"]
 
     ranking: RankingDTO

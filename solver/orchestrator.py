@@ -215,6 +215,7 @@ class SolverOrchestrator:
                     type="heuristic_single_start",
                     problem_difficulty=diff,
                     problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+                    n_runs=1,
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
@@ -238,6 +239,7 @@ class SolverOrchestrator:
                     type="heuristic_multi_start",
                     problem_difficulty=diff,
                     problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+                    n_runs=50,
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
@@ -261,6 +263,7 @@ class SolverOrchestrator:
                     type="heuristic_multi_start",
                     problem_difficulty=diff,
                     problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+                    n_runs=500,
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
@@ -280,6 +283,7 @@ class SolverOrchestrator:
                     type="exact",
                     problem_difficulty=diff,
                     problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+                    n_runs=1,
 
                     ranking=RankingDTO(
                         best_solution=solution,
@@ -298,6 +302,7 @@ class SolverOrchestrator:
                     type="heuristic_fallback",
                     problem_difficulty=diff,
                     problem_type="RCPSP_MAX" if rcpsp_max else "RCPSP",
+                    n_runs=500,
 
                     ranking=RankingDTO(
                         best_solution=best_solution.get("best"),
