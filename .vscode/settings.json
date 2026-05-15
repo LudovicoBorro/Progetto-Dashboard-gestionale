@@ -17,7 +17,8 @@
         "projectKey": "Dashboard-gestionale-ottimizzazioni-ufficio-isp"
     },
     "sonarlint.ls.python.path": ".venv\\Scripts\\python.exe",
-    "sonarlint.python.interpreterPath": ".venv\\Scripts\\python.exe"
+    "sonarlint.python.interpreterPath": ".venv\\Scripts\\python.exe",
+    "python.analysis.typeCheckingMode": "off"
 }
 
-
+
