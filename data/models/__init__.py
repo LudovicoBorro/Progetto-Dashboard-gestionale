@@ -3,6 +3,7 @@ from .activity import Activity
 from .experiment import Experiment, ProblemType, Method
 from .schedule import Schedule
 from .schedule_activity import ScheduleActivity
+from .project_resource import ProjectResource
 
 __all__ = [
     "Project",
@@ -12,5 +13,6 @@ __all__ = [
     "ProblemType",
     "Method",
     "Schedule",
-    "ScheduleActivity"
+    "ScheduleActivity",
+    "ProjectResource"
 ]

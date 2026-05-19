@@ -25,8 +25,8 @@ Struttura del file Excel input_data.xlsx:
 
 from solver.dataclasses.input_data import InputData
 import pandas as pd
-import holidays
-from datetime import datetime, timedelta
+from utils.converter.calendar_utils import convert_datetime_to_working_days
+from datetime import datetime
 from typing import List
 
 class ExcelImportService:
@@ -89,8 +89,8 @@ class ExcelImportService:
         names = df["Nome Attività"].dropna().tolist()
         release_dates_min = df["Data di Rilascio Minima"].tolist()
         release_dates_max = df["Data di Rilascio Massima"].tolist()
-        release_dates_min = [self._convert_datetime_to_working_days(start_date, pd.to_datetime(date)) if pd.notna(date) else None for date in release_dates_min]
-        release_dates_max = [self._convert_datetime_to_working_days(start_date, pd.to_datetime(date)) if pd.notna(date) else None for date in release_dates_max]
+        release_dates_min = [convert_datetime_to_working_days(start_date, pd.to_datetime(date, dayfirst=True)) if pd.notna(date) else None for date in release_dates_min]
+        release_dates_max = [convert_datetime_to_working_days(start_date, pd.to_datetime(date, dayfirst=True)) if pd.notna(date) else None for date in release_dates_max]
         list_release_dates_data = []
         for i, id in enumerate(id_activities):
             list_release_dates_data.append({
@@ -106,8 +106,8 @@ class ExcelImportService:
         names = df["Nome Attività"].dropna().tolist()
         due_dates_min = df["Data di Scadenza Minima"].tolist()
         due_dates_max = df["Data di Scadenza Massima"].tolist()
-        due_dates_min = [self._convert_datetime_to_working_days(start_date, pd.to_datetime(date)) if pd.notna(date) else None for date in due_dates_min]
-        due_dates_max = [self._convert_datetime_to_working_days(start_date, pd.to_datetime(date)) if pd.notna(date) else None for date in due_dates_max]
+        due_dates_min = [convert_datetime_to_working_days(start_date, pd.to_datetime(date, dayfirst=True)) if pd.notna(date) else None for date in due_dates_min]
+        due_dates_max = [convert_datetime_to_working_days(start_date, pd.to_datetime(date, dayfirst=True)) if pd.notna(date) else None for date in due_dates_max]
         list_due_dates_data = []
         for i, id in enumerate(id_activities):
             list_due_dates_data.append({
@@ -137,18 +137,6 @@ class ExcelImportService:
                 "lag_time_max": lag_times_max[i] if lag_times_max[i] != 0 else None
             })
         return list_precedences_data
-
-    def _convert_datetime_to_working_days(self, start_date: datetime, target_date: datetime) -> int:
-        today_date = datetime.now()
-        holidays_list = holidays.IT()
-        start_date = max(start_date.date(), today_date.date())
-        target_date = target_date.date()
-        days = (target_date - start_date).days
-        working_days = 0
-        for i in range(days):
-            if start_date + timedelta(days=i) not in holidays_list and (start_date + timedelta(days=i)).weekday() < 5:
-                working_days += 1
-        return working_days
 
     def _check_activities_consistency(self, list_activities_data: List[dict], list_precedences_data: List[dict], list_release_dates_data: List[dict], list_due_dates_data: List[dict], list_resources_data: List[dict]):
         """
@@ -444,7 +432,7 @@ class ExcelImportService:
 
         list_ids = [x.get("id") for x in list_activities_data]
         n = len(list_ids)
-        horizon = self._convert_datetime_to_working_days(start_date_project, end_date_project)
+        horizon = convert_datetime_to_working_days(start_date_project, end_date_project)
         list_durations = [x.get("duration") if x.get("duration") == x.get("duration_max") else (x.get("duration"), x.get("duration_max")) for x in list_activities_data]
         list_activities_names = [x.get("name") for x in list_activities_data]
         list_resources_names = [x.get("name") for x in list_resources_data]

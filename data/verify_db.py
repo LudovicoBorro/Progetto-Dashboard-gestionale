@@ -24,8 +24,8 @@ def test_db_flow():
         project = Project(
             name="Granular Config Project",
             description="Progetto di prova",
-            start_date=datetime(2026, 1, 1),
-            end_date=datetime(2026, 12, 31),
+            start_date=datetime(2026, 5, 10),
+            end_date=datetime(2026, 11, 1),
             initial_budget=10000.0,
             project_config_json={"resources": {"R1": 10, "R2": 20, "R3": 30}, "horizon": 100}
         )

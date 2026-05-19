@@ -22,6 +22,8 @@ class ScheduleActivity(SQLModel, table=True):
     release_date: Optional[int] = Field(description="Data di rilascio dell'attività", ge=0)
     deadline: Optional[int] = Field(description="Data di scadenza dell'attività", ge=0)
 
+    actual_progress: float = Field(default=0.0, description="Percentuale di avanzamento reale dell'attività", ge=0, le=1.0)
+
     # Relationships
     schedule: "Schedule" = Relationship(back_populates="schedule_activities")
     activity: "Activity" = Relationship(back_populates="schedule_activities")

@@ -45,12 +45,18 @@ class ExcelService:
 
         with get_session() as session:
             from data.models.activity import Activity
+            from data.models.project_resource import ProjectResource
+            from data.repositories.project_resource_repository import ProjectResourceRepository
             from sqlmodel import delete
             
             # 1. Pulizia attività esistenti per questo progetto
             statement = delete(Activity).where(Activity.project_id == self.project.id)
             session.exec(statement)
             
+            # 1.1 Pulizia risorse associate al progetto
+            statement_res = delete(ProjectResource).where(ProjectResource.project_id == self.project.id)
+            session.exec(statement_res)
+
             # 2. Creazione nuove attività
             new_activities = []
             for i in range(in_data.n):
@@ -73,6 +79,32 @@ class ExcelService:
             
             session.add_all(new_activities)
             
+            # 2.1 Gestione delle Risorse del Progetto
+            proj_res_repo = ProjectResourceRepository(session)
+            default_colors = ["#FF5733", "#33FF57", "#3357FF", "#F3FF33", "#FF33A8", 
+                                "#33FFF3", "#FFA833", "#FF9933", "#99FF33", "#A833FF", "#33A8FF",
+                                "#33FF99", "#FF3333"]
+            
+            if in_data.resource_names and in_data.resources:
+                for i, res_name in enumerate(in_data.resource_names):
+                    res_capacity = in_data.resources[i]
+                    if isinstance(res_capacity, tuple):
+                        cap_min, cap_max = res_capacity
+                    else:
+                        cap_min = res_capacity
+                        cap_max = None
+                        
+                    color_hex = default_colors[i % len(default_colors)]
+                    
+                    proj_res = ProjectResource(
+                        project_id=self.project.id,
+                        name=res_name,
+                        capacity_min=cap_min,
+                        capacity_max=cap_max,
+                        color_hex=color_hex
+                    )
+                    session.add(proj_res)
+
             # 3. Aggiorna il progetto tramite repository
             repo = ProjectRepository(session)
             repo.update(self.project)

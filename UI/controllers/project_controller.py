@@ -1,3 +1,5 @@
+import asyncio
+from UI.widgets.error_alert import ErrorAlert
 from UI.controllers.base_controller import BaseController
 from data.models.project import Project
 import flet as ft
@@ -60,10 +62,13 @@ class ProjectController(BaseController):
         # Mostriamo il dialogo informativo
         page = self.view.page or self.view._page_ref
         if page:
-            self.view.info_edit_dialog.open = True
-            if self.view.info_edit_dialog not in page.overlay:
-                page.overlay.append(self.view.info_edit_dialog)
-            page.update()
+            if hasattr(page, 'open'):
+                page.open(self.view.info_edit_dialog)
+            else:
+                self.view.info_edit_dialog.open = True
+                if self.view.info_edit_dialog not in page.overlay:
+                    page.overlay.append(self.view.info_edit_dialog)
+                page.update()
 
     def _watch_excel_file(self):
         """Controlla ogni secondo se il file Excel è stato salvato."""
@@ -88,10 +93,13 @@ class ProjectController(BaseController):
         """Mostra il dialogo di conferma prima dell'importazione."""
         page = self.view.page or self.view._page_ref
         if page:
-            self.view.confirm_dialog.open = True
-            if self.view.confirm_dialog not in page.overlay:
-                page.overlay.append(self.view.confirm_dialog)
-            page.update()
+            if hasattr(page, 'open'):
+                page.open(self.view.confirm_dialog)
+            else:
+                self.view.confirm_dialog.open = True
+                if self.view.confirm_dialog not in page.overlay:
+                    page.overlay.append(self.view.confirm_dialog)
+                page.update()
             print(f"DEBUG: Dialogo di conferma aperto per '{self.view.project.name}'")
 
     def import_project_data(self, e):
@@ -102,30 +110,65 @@ class ProjectController(BaseController):
 
         # Chiudiamo il dialogo di conferma
         if page:
-            self.view.confirm_dialog.open = False
-            page.update()
+            if hasattr(page, 'close'):
+                page.close(self.view.confirm_dialog)
+            else:
+                self.view.confirm_dialog.open = False
+                page.update()
+                
+        async def _do_import():
+            try:
+                await asyncio.sleep(0.2) # Breve ritardo per animazione
+                
+                excel_service = ExcelService()
+                excel_service.get_instance_data_from_excel("data/files/input_data.xlsx", self.project)
 
-        try:
-            excel_service = ExcelService()
-            excel_service.get_instance_data_from_excel("data/files/input_data.xlsx", self.project)
+                # Ricarichiamo il progetto aggiornato dal DB
+                updated_project = ProjectService.get_project_by_id(self.project.id)
+                self.project = updated_project
+                self.view.project = updated_project
 
-            # Ricarichiamo il progetto aggiornato dal DB
-            updated_project = ProjectService.get_project_by_id(self.project.id)
-            self.project = updated_project
-            self.view.project = updated_project
+                # Reset del pulsante e ricostruzione vista
+                self.view.btn_import.disabled = True
+                self.view.build_view()
+                self.view.update()
+                self._show_snackbar("Importazione completata con successo!")
+                print("Importazione completata con successo!")
 
-            # Reset del pulsante e ricostruzione vista
-            self.view.btn_import.disabled = True
-            self.view.build_view()
-            self.view.update()
-            self._show_snackbar("Importazione completata con successo!")
-            print("Importazione completata con successo!")
+            except Exception as ex:
+                print(f"Errore durante l'importazione: {ex}")
+                import traceback
+                traceback.print_exc()
+                def close_err(e):
+                    self.error_alert.open = False
+                    if self.view.page or self.view._page_ref:
+                        p = self.view.page or self.view._page_ref
+                        if hasattr(p, 'close'):
+                            p.close(self.error_alert)
+                        else:
+                            p.update()
 
-        except Exception as ex:
-            print(f"Errore durante l'importazione: {ex}")
-            import traceback
-            traceback.print_exc()
-            self._show_snackbar(f"Errore importazione: {ex}")
+                self.error_alert = ErrorAlert(
+                    error_message=f"Errore durante l'importazione: {ex}",
+                    title="Errore",
+                    actions=[
+                        ft.TextButton("OK", on_click=close_err)
+                    ],
+                )
+                
+                p2 = self.view.page or self.view._page_ref
+                if p2:
+                    if hasattr(p2, 'open'):
+                        p2.open(self.error_alert)
+                    else:
+                        self.error_alert.open = True
+                        if self.error_alert not in p2.overlay:
+                            p2.overlay.append(self.error_alert)
+                    
+                    # Forza l'aggiornamento della UI dal thread in background
+                    p2.update()
+
+        page.run_task(_do_import)
 
     # ------------------------------------------------------------------ #
     #  Helper UI

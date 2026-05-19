@@ -9,6 +9,7 @@ from enum import Enum
 if TYPE_CHECKING:
     from .activity import Activity
     from .experiment import Experiment
+    from .project_resource import ProjectResource
 
 class ProjectStatus(str, Enum):
     NOTSCHEDULED = "Da schedulare"          # Progetto che non ha ancora una schedulazione
@@ -39,3 +40,4 @@ class Project(SQLModel, table=True):
     # Relationships
     activities: List["Activity"] = Relationship(back_populates="project")
     experiments: List["Experiment"] = Relationship(back_populates="project")
+    resources: List["ProjectResource"] = Relationship(back_populates="project")

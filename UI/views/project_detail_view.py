@@ -1,6 +1,7 @@
 from UI.views.base_view import BaseView
 from data.models.project import Project
 from UI.controllers.project_controller import ProjectController
+from UI.widgets.error_alert import ErrorAlert
 import flet as ft
 
 class ProjectDetailView(BaseView):
@@ -17,25 +18,22 @@ class ProjectDetailView(BaseView):
             return
 
         # ---------------- DIALOGS ----------------
-        self.info_edit_dialog = ft.AlertDialog(
-            title=ft.Text("Istruzioni Modifica"),
-            content=ft.Text("Il file Excel verrà aperto alla chiusura di questo pop-up.\n\n1. Apporta le modifiche desiderate\n2. SALVA il file in Excel\n3. Torna qui per abilitare il tasto 'Importa Dati'"),
+        self.info_edit_dialog = ErrorAlert(
+            error_message="Il file Excel verrà aperto alla chiusura di questo pop-up.\n\n1. Apporta le modifiche desiderate\n2. SALVA il file in Excel\n3. Torna qui per abilitare il tasto 'Importa Dati'",
+            title="Istruzioni Modifica",
             actions=[
-                ft.TextButton("Ho capito", on_click=self._open_excel_and_close_dialog),
+                ft.TextButton("Ho capito", on_click=self._open_excel_and_close_dialog)
             ],
         )
 
-        self.confirm_dialog = ft.AlertDialog(
-
-            title=ft.Text("Conferma Importazione"),
-            content=ft.Text("Attenzione: Questa operazione sovrascriverà tutti i dati e le attività attuali del progetto con quelli del file Excel. Vuoi procedere?"),
+        self.confirm_dialog = ErrorAlert(
+            error_message="Attenzione: Questa operazione sovrascriverà tutti i dati e le attività attuali del progetto con quelli del file Excel. Vuoi procedere?",
+            title="Conferma Importazione",
             actions=[
                 ft.TextButton("Annulla", on_click=self._close_confirm_dialog),
-                ft.ElevatedButton("Sì, Importa tutto", bgcolor=ft.Colors.RED, color=ft.Colors.WHITE, on_click=self.controller.import_project_data),
+                ft.TextButton("Sì, Importa tutto", on_click=self.controller.import_project_data, style=ft.ButtonStyle(color=ft.Colors.RED))
             ],
         )
-
-
 
         # ---------------- TOP BAR ----------------
         self.btn_import = ft.ElevatedButton(
@@ -85,12 +83,18 @@ class ProjectDetailView(BaseView):
     def _close_info_dialog(self, e=None):
         self.info_edit_dialog.open = False
         if self._page_ref:
-            self._page_ref.update()
+            if hasattr(self._page_ref, 'close'):
+                self._page_ref.close(self.info_edit_dialog)
+            else:
+                self._page_ref.update()
 
     def _close_confirm_dialog(self, e=None):
         self.confirm_dialog.open = False
         if self._page_ref:
-            self._page_ref.update()
+            if hasattr(self._page_ref, 'close'):
+                self._page_ref.close(self.confirm_dialog)
+            else:
+                self._page_ref.update()
 
     def _activities_section(self):
         activities = self.controller.get_activities()
@@ -166,13 +170,13 @@ class ProjectDetailView(BaseView):
                             ft.Column(
                                 controls=[
                                     ft.Text("Budget iniziale", size=12, color=ft.Colors.WHITE70),
-                                    ft.Text(f"€{(self.project.initial_budget or 0.0):.2f}", size=22, weight=ft.FontWeight.BOLD)
+                                    ft.Text(f"€{(self.project.initial_budget or 0.0):,.2f}", size=22, weight=ft.FontWeight.BOLD)
                                 ]
                             ),
                             ft.Column(
                                 controls=[
                                     ft.Text("Budget finale", size=12, color=ft.Colors.WHITE70),
-                                    ft.Text(f"€{(self.project.final_budget or 0.0):.2f}", size=22, weight=ft.FontWeight.BOLD)
+                                    ft.Text(f"€{(self.project.final_budget or 0.0):,.2f}", size=22, weight=ft.FontWeight.BOLD)
                                 ]
                             )
                         ]

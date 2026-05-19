@@ -29,48 +29,58 @@ class Sidebar(ft.Container):
             color=ft.Colors.WHITE70
         )
 
+        controls = [
+            ft.Container(
+                content=ft.Column([title, subtitle]),
+                padding=10
+            ),
+
+            ft.Divider(color=ft.Colors.WHITE24),
+
+            self._nav_button(
+                icon=ft.Icons.DASHBOARD,
+                text="Home",
+                on_click=self.controller.go_dashboard
+            ),
+
+            self._nav_button(
+                icon=ft.Icons.ADD_BOX,
+                text="Nuovo Progetto",
+                on_click=self.controller.go_new_project
+            ),
+        ]
+
+        # Aggiunta condizionale del diagramma di Gantt (solo se il progetto in contesto è schedulato)
+        project = getattr(self.controller, "project", None)
+        if project:
+            from data.models.project import ProjectStatus
+            if project.status == ProjectStatus.SCHEDULED or project.status == "Schedulato":
+                controls.append(
+                    self._nav_button(
+                        icon=ft.Icons.TIMELINE,
+                        text="Gantt",
+                        on_click=self.controller.go_gantt
+                    )
+                )
+
+        controls.extend([
+            self._nav_button(
+                icon=ft.Icons.ANALYTICS,
+                text="Statistiche",
+                on_click=self.controller.go_stats
+            ),
+
+            ft.Divider(color=ft.Colors.WHITE24),
+
+            self._nav_button(
+                icon=ft.Icons.SETTINGS,
+                text="Impostazioni",
+                on_click=self.controller.go_settings
+            ),
+        ])
+
         return ft.Column(
-            controls=[
-
-                ft.Container(
-                    content=ft.Column([title, subtitle]),
-                    padding=10
-                ),
-
-                ft.Divider(color=ft.Colors.WHITE24),
-
-                self._nav_button(
-                    icon=ft.Icons.DASHBOARD,
-                    text="Home",
-                    on_click=self.controller.go_dashboard
-                ),
-
-                self._nav_button(
-                    icon=ft.Icons.ADD_BOX,
-                    text="Nuovo Progetto",
-                    on_click=self.controller.go_new_project
-                ),
-
-                self._nav_button(
-                    icon=ft.Icons.TIMELINE,
-                    text="Gantt",
-                    on_click=self.controller.go_gantt
-                ),
-
-                self._nav_button(
-                    icon=ft.Icons.ANALYTICS,
-                    text="Statistiche",
-                    on_click=self.controller.go_stats
-                ),
-
-                ft.Divider(color=ft.Colors.WHITE24),
-
-                self._nav_button(
-                    icon=ft.Icons.SETTINGS,
-                    text="Impostazioni",
-                    on_click=self.controller.go_settings
-                ),
-            ],
+            controls=controls,
             spacing=10
         )
 
