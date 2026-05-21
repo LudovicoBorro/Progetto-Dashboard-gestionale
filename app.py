@@ -7,6 +7,8 @@ from UI.controllers.dashboard_controller import DashboardController
 from UI.controllers.project_controller import ProjectController
 from UI.controllers.scheduling_controller import SchedulingController
 from UI.controllers.gantt_controller import GanttController
+from UI.views.project_creation_view import ProjectCreationView
+from UI.controllers.project_creation_controller import ProjectCreationController
 
 def main(page: ft.Page):
 
@@ -54,6 +56,13 @@ def main(page: ft.Page):
                 gantt_controller = GanttController(gantt_view, project)
                 gantt_view.controller = gantt_controller
                 page.views.append(gantt_view)
+
+        # Project Creation
+        if page.route.startswith("/new_project"):
+            project_creation_view = ProjectCreationView(page)
+            project_creation_controller = ProjectCreationController(project_creation_view)
+            project_creation_view.controller = project_creation_controller
+            page.views.append(project_creation_view)
 
         page.update()
 

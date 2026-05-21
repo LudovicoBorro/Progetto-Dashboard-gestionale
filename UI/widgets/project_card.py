@@ -1,12 +1,16 @@
 import flet as ft
-
+from data.models.project import ProjectStatus
 
 class ProjectCard:
 
-    def __init__(self, project, on_open):
+    def __init__(self, project, on_open, on_open_gantt, suspend_project, resume_project, delete_project):
 
         self.project = project
         self.on_open = on_open
+        self.on_open_gantt = on_open_gantt
+        self.suspend_project = suspend_project
+        self.resume_project = resume_project
+        self.delete_project = delete_project
 
     def _status_label(self):
         status = self.project.status
@@ -30,6 +34,52 @@ class ProjectCard:
     def build(self):
         status_label = self._status_label()
 
+        itemsPopMenu = [
+            ft.PopupMenuItem(
+                content=ft.Text("Apri progetto"),
+                on_click=lambda e: self.on_open(project_id=self.project.id)
+            )
+        ]
+        if self.project.status in [ProjectStatus.NOTSCHEDULED, ProjectStatus.SUSPENDED]:
+            itemsPopMenu.append(
+                ft.PopupMenuItem(
+                    content=ft.Text("Schedula progetto"),
+                    on_click=lambda e: self.on_open(project_id=self.project.id)
+                )
+            )
+
+        if self.project.status in [ProjectStatus.SCHEDULED, ProjectStatus.COMPLETED]:
+            itemsPopMenu.append(
+                ft.PopupMenuItem(
+                    content=ft.Text("Apri gantt"),
+                    on_click=lambda e: self.on_open_gantt(project_id=self.project.id)
+                )
+            )
+
+        if self.project.status not in [ProjectStatus.SUSPENDED, ProjectStatus.COMPLETED, ProjectStatus.NOTSCHEDULED]:
+            itemsPopMenu.append(
+                ft.PopupMenuItem(
+                    content=ft.Text("Sospendi progetto"),
+                    on_click=lambda e: self.suspend_project(project_id=self.project.id)
+                )
+            )
+
+        if self.project.status == ProjectStatus.SUSPENDED:
+            itemsPopMenu.append(
+                ft.PopupMenuItem(
+                    content=ft.Text("Riprendi progetto"),
+                    on_click=lambda e: self.resume_project(project_id=self.project.id)
+                )
+            )
+
+        if self.project.status != ProjectStatus.COMPLETED:
+            itemsPopMenu.append(
+                ft.PopupMenuItem(
+                    content=ft.Text("Elimina progetto", color=ft.Colors.RED),
+                    on_click=lambda e: e.page.run_task(self.delete_project, self.project.id)
+                )
+            )
+
         return ft.Container(
             width=320,
             padding=15,
@@ -40,10 +90,19 @@ class ProjectCard:
                 spacing=10,
                 controls=[
 
-                    ft.Text(
-                        self.project.name,
-                        size=18,
-                        weight=ft.FontWeight.BOLD
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Text(
+                                self.project.name,
+                                size=18,
+                                weight=ft.FontWeight.BOLD
+                            ),
+                            ft.PopupMenuButton(
+                                icon=ft.Icons.MORE_VERT,
+                                items=itemsPopMenu,
+                            )
+                        ]
                     ),
 
                     ft.Container(
@@ -68,14 +127,15 @@ class ProjectCard:
                                 icon=ft.Icons.FOLDER_OPEN,
                                 on_click=lambda e: self.on_open(self.project.id)
                             ),
-
                             ft.TextButton(
-                                "Statistiche",
-                                icon=ft.Icons.ANALYTICS,
-                                on_click=lambda e: print("Statistiche")
+                                "Gantt",
+                                icon=ft.Icons.TIMELINE,
+                                on_click=lambda e: self.on_open_gantt(self.project.id)
                             )
+                            if self.project.status == ProjectStatus.SCHEDULED or self.project.status == ProjectStatus.COMPLETED
+                            else ft.Container(opacity=0)
                         ]
-                    )
+                    ),
                 ]
             )
         )

@@ -38,6 +38,6 @@ class Project(SQLModel, table=True):
     input_data_json: Optional[dict] = Field(default=None, description="Snapshot input_data salvato dopo l'importazione da Excel", sa_column=Column(JSON))
     
     # Relationships
-    activities: List["Activity"] = Relationship(back_populates="project")
-    experiments: List["Experiment"] = Relationship(back_populates="project")
-    resources: List["ProjectResource"] = Relationship(back_populates="project")
+    activities: List["Activity"] = Relationship(back_populates="project", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    experiments: List["Experiment"] = Relationship(back_populates="project", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    resources: List["ProjectResource"] = Relationship(back_populates="project", sa_relationship_kwargs={"cascade": "all, delete-orphan"})

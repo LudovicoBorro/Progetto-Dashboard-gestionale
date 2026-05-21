@@ -11,8 +11,8 @@ if TYPE_CHECKING:
 
 class ScheduleActivity(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    schedule_id: UUID = Field(foreign_key="schedule.id", index=True, nullable=False, description="ID dello schedule")
-    activity_id: UUID = Field(foreign_key="activity.id", index=True, nullable=False, description="ID dell'attività")
+    schedule_id: UUID = Field(foreign_key="schedule.id", index=True, nullable=False, description="ID dello schedule", ondelete="CASCADE")
+    activity_id: UUID = Field(foreign_key="activity.id", index=True, nullable=False, description="ID dell'attività", ondelete="CASCADE")
     
     # Solver outputs (fixed values)
     start_time: int = Field(description="Tempo di inizio dell'attività", ge=0)

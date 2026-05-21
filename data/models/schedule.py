@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 class Schedule(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    experiment_id: UUID = Field(foreign_key="experiment.id", index=True, nullable=False, description="ID dell'esperimento")
+    experiment_id: UUID = Field(foreign_key="experiment.id", index=True, nullable=False, description="ID dell'esperimento", ondelete="CASCADE")
     makespan: Optional[int] = Field(index=True, nullable=True, description="Makespan della soluzione", ge=0)
     score: Optional[float] = Field(index=True, nullable=True, description="Score della soluzione (RCPSP_MAX)", ge=0)
     created_at: datetime = Field(index=True, default_factory=datetime.now, description="Data di creazione della soluzione")
@@ -19,4 +19,4 @@ class Schedule(SQLModel, table=True):
     
     # Relationships
     experiment: "Experiment" = Relationship(back_populates="schedules")
-    schedule_activities: List["ScheduleActivity"] = Relationship(back_populates="schedule")
+    schedule_activities: List["ScheduleActivity"] = Relationship(back_populates="schedule", sa_relationship_kwargs={"cascade": "all, delete-orphan"})

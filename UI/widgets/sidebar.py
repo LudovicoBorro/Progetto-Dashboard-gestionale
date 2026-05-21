@@ -48,6 +48,7 @@ class Sidebar(ft.Container):
                 text="Nuovo Progetto",
                 on_click=self.controller.go_new_project
             ),
+            
         ]
 
         # Aggiunta condizionale del diagramma di Gantt (solo se il progetto in contesto è schedulato)
@@ -59,7 +60,7 @@ class Sidebar(ft.Container):
                     self._nav_button(
                         icon=ft.Icons.TIMELINE,
                         text="Gantt",
-                        on_click=self.controller.go_gantt
+                        on_click=lambda e: self.controller.go_gantt(project.id)
                     )
                 )
 

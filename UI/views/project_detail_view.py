@@ -64,7 +64,7 @@ class ProjectDetailView(BaseView):
                             ),
                             self.btn_import,
                             ft.VerticalDivider(width=1, color=ft.Colors.WHITE24),
-                            ft.FilledButton("Vai alla schedulazione", icon=ft.Icons.PLAY_ARROW, on_click=self.controller.go_scheduling_view)
+                            ft.FilledButton("Vai alla schedulazione", icon=ft.Icons.PLAY_ARROW, on_click=self.controller.go_scheduling)
                         ]
                     )
                 ]

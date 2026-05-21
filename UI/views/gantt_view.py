@@ -51,42 +51,43 @@ class GanttView(BaseView):
             gantt = GanttChart(df, self.project)
             fig, ax = gantt.plot()
 
-            # # Configurazione estetica per adattare Matplotlib al tema Dark di Flet
-            # bg_color = "#1e293b"      # Slate 800 (bgcolor del container)
-            # chart_bg = "#0f172a"      # Slate 900 (area del grafico)
-            # border_color = "#334155"  # Slate 700
-            # text_color = "#f8fafc"    # Slate 50
-            # muted_text = "#cbd5e1"    # Slate 300
+            # Configurazione estetica per adattare Matplotlib al tema Dark di Flet
+            bg_color = "#ffffff"
+            chart_bg = "#ffffff"
+            border_color = "#d1d5db"
+            text_color = "#111827"
+            muted_text = "#4b5563"
+            grid_color = "#cbd5e1"
 
-            # fig.patch.set_facecolor(bg_color)
-            # ax.set_facecolor(chart_bg)
+            fig.patch.set_facecolor(bg_color)
+            ax.set_facecolor(chart_bg)
 
-            # # Titolo ed etichette assi
-            # ax.title.set_color(text_color)
-            # if ax.xaxis.label:
-            #     ax.xaxis.label.set_color(muted_text)
-            # if ax.yaxis.label:
-            #     ax.yaxis.label.set_color(muted_text)
+            # Titolo ed etichette assi
+            ax.title.set_color(text_color)
+            if ax.xaxis.label:
+                ax.xaxis.label.set_color(muted_text)
+            if ax.yaxis.label:
+                ax.yaxis.label.set_color(muted_text)
 
-            # # Colore dei bordi (spines)
-            # for spine in ax.spines.values():
-            #     spine.set_color(border_color)
+            # Colore dei bordi (spines)
+            for spine in ax.spines.values():
+                spine.set_color(border_color)
 
-            # # Colore dei ticks e delle etichette (nomi attività, date)
-            # ax.tick_params(colors=muted_text, which='both')
+            # Colore dei ticks e delle etichette (nomi attività, date)
+            ax.tick_params(colors=muted_text, which='both')
 
-            # # Griglia di background
-            # ax.xaxis.grid(True, color=border_color, alpha=0.4, linestyle=":")
+            # Griglia di background
+            ax.xaxis.grid(True, color=grid_color, alpha=0.9, linestyle="--", linewidth=0.9)
 
-            # # Legenda delle durate
-            # legend = ax.get_legend()
-            # if legend:
-            #     legend.get_frame().set_facecolor(chart_bg)
-            #     legend.get_frame().set_edgecolor(border_color)
-            #     for text in legend.get_texts():
-            #         text.set_color(text_color)
-            #     if legend.get_title():
-            #         legend.get_title().set_color(text_color)
+            # Legenda delle durate
+            legend = ax.get_legend()
+            if legend:
+                legend.get_frame().set_facecolor(chart_bg)
+                legend.get_frame().set_edgecolor(border_color)
+                for text in legend.get_texts():
+                    text.set_color(text_color)
+                if legend.get_title():
+                    legend.get_title().set_color(text_color)
 
             # Ricolora il testo della linea verticale di "Oggi" in rosso/rosa per risaltare
             for child in ax.get_children():
@@ -96,9 +97,9 @@ class GanttView(BaseView):
 
             # Inserisce il grafico matplotlib nel container Flet
             chart_content = ft.Container(
-                bgcolor=ft.Colors.WHITE,
+                bgcolor=bg_color,
                 border_radius=16,
-                border=ft.Border.all(1, ft.Colors.WHITE),
+                border=ft.Border.all(1, border_color),
                 padding=20,
                 height=700,
                 content=MatplotlibChart(figure=fig, expand=True),

@@ -20,14 +20,6 @@ class ProjectController(BaseController):
     #  Scheduling
     # ------------------------------------------------------------------ #
 
-    def go_scheduling_view(self, e):
-        """
-        Reindirizza alla pagina per eseguire le schedulazioni 
-        del progetto.
-        """
-        self.view.page.go(f"/scheduling?id={self.project.id}")
-        print(f"Chiamata la schedulazione per il progetto: {self.project.name}")
-
     def get_activities(self) -> list:
         """Recupera le attività del progetto tramite il service."""
         from UI.services.project_service import ProjectService

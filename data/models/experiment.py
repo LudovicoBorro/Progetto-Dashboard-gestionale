@@ -22,7 +22,7 @@ class Method(str, Enum):
 
 class Experiment(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    project_id: UUID = Field(foreign_key="project.id", index=True, nullable=False, description="ID del progetto")
+    project_id: UUID = Field(foreign_key="project.id", index=True, nullable=False, description="ID del progetto", ondelete="CASCADE")
     problem_type: ProblemType = Field(index=True, nullable=False, description="Tipo di problema", default=ProblemType.RCPSP)
     method: Method = Field(index=True, nullable=False, description="Metodo utilizzato")
     search_strategy: str = Field(default="direct_solver", index=True, nullable=False, description="Strategia di ricerca (es. direct_solver, branch_and_bound)")
@@ -34,4 +34,4 @@ class Experiment(SQLModel, table=True):
     
     # Relationships
     project: "Project" = Relationship(back_populates="experiments")
-    schedules: List["Schedule"] = Relationship(back_populates="experiment")
+    schedules: List["Schedule"] = Relationship(back_populates="experiment", sa_relationship_kwargs={"cascade": "all, delete-orphan"})

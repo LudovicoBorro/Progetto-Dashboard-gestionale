@@ -61,7 +61,10 @@ class DashboardView(BaseView):
             spacing=15,
             run_spacing=15,
             controls=[
-                ProjectCard(project=p, on_open=self.controller.open_project).build()
+                ProjectCard(
+                    project=p, on_open=self.controller.go_project_details, on_open_gantt=self.controller.go_gantt, 
+                    suspend_project=self.controller.suspend_project, resume_project=self.controller.resume_project, 
+                    delete_project=self.controller.delete_project).build()
                 for p in projects
             ]
         )

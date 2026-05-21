@@ -65,7 +65,6 @@ class GanttService:
                 # Recupera il nome dell'attività reale
                 repo = ActivityRepository(session)
                 act = repo.get_by_id(sa.activity_id)
-                print(f"[DEBUG] Activity id {sa.activity_id}: {act}")   
                 act_name = act.name
 
                 activities.append(act_name)
@@ -93,8 +92,6 @@ class GanttService:
                 "completion_frac": completion_fracs,
                 "completion_days": completion_days_list
             })
-
-            print(f"[DEBUG] DataFrame: {df}")
 
             # Ordina le attività per tempo di inizio per una resa visiva migliore
             df = df.sort_values(by="start_time").reset_index(drop=True)

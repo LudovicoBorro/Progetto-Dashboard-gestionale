@@ -1,4 +1,6 @@
 import flet as ft
+from UI.services.project_service import ProjectService
+import uuid
 
 class BaseController:
     """
@@ -15,19 +17,19 @@ class BaseController:
     def go_new_project(self, e):
         """Naviga alla creazione di un nuovo progetto."""
         print("Navigazione a Nuovo Progetto")
-        # self.view.page.go("/new_project")
+        self.view.page.go("/new_project")
 
-    def go_gantt(self, e):
+    def go_project_details(self, project_id):
+        """Naviga alla vista dettaglio del progetto."""
+        self.view.page.go(f"/project_details?id={project_id}")
+
+        print(f"Apertura progetto {project_id}")
+
+    def go_gantt(self, project_id):
         """Naviga alla vista Gantt del progetto corrente."""
-        project = getattr(self, "project", None)
-        if not project and hasattr(self.view, "project"):
-            project = self.view.project
-            
-        if project:
-            print(f"Navigazione a Gantt per il progetto {project.id}")
-            self.view.page.go(f"/gantt?id={project.id}")
-        else:
-            print("Errore: Nessun progetto in contesto per accedere al Gantt.")
+        self.view.page.go(f"/gantt?id={project_id}")
+
+        print(f"Navigazione a Gantt per il progetto {project_id}")
 
     def go_stats(self, e):
         """Naviga alla vista statistiche."""
@@ -36,3 +38,9 @@ class BaseController:
     def go_settings(self, e):
         """Naviga alle impostazioni."""
         print("Navigazione a Impostazioni")
+
+    def go_scheduling(self, project_id):
+        """Naviga alla vista scheduling del progetto."""
+        self.view.page.go(f"/scheduling?id={project_id}")
+
+        print(f"Apertura scheduling progetto {project_id}")
